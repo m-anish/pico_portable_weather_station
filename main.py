@@ -13,10 +13,9 @@ from config import (
     load_settings,
     FONT_SCALES,
     REFRESH_INTERVALS,
-    DISPLAY_SLEEP_S,
-    APC1_SLEEP_S,
     SETTINGS_FILE,
     get_apc1_pins,
+    get_sleep_times,
 )
 from screens import available_screens, draw_screen as draw_named_screen
 from apc1_power import APC1Power
@@ -62,6 +61,9 @@ settings = load_settings()
 sda = settings["i2c"].get("sda", 16)
 scl = settings["i2c"].get("scl", 17)
 i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
+
+# Get sleep times from settings
+DISPLAY_SLEEP_S, APC1_SLEEP_S = get_sleep_times(settings)
 
 oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
 devices = i2c.scan()

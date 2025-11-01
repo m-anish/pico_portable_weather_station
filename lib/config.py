@@ -24,11 +24,6 @@ REFRESH_INTERVALS = {
     "resetwifi": 0,
 }
 
-# -------- SLEEP CONFIGURATION --------
-DISPLAY_SLEEP_S = 30
-APC1_SLEEP_S = 300
-
-
 def load_settings():
     """Load settings from SETTINGS_FILE, with safe defaults."""
     if SETTINGS_FILE in os.listdir():
@@ -37,7 +32,13 @@ def load_settings():
                 return json.load(f)
         except Exception:
             pass
-    return {"i2c": {"sda": 16, "scl": 17}}
+    return {
+        "i2c": {"sda": 16, "scl": 17},
+        "power": {
+            "display_sleep_s": 30,
+            "apc1_sleep_s": 300
+        }
+    }
 
 
 # -------- APC1 PIN DEFAULTS AND HELPERS --------
@@ -61,3 +62,20 @@ def get_apc1_pins(settings: dict):
     set_pin = apc1_cfg.get("set_pin", APC1_SET_DEFAULT_PIN)
     reset_pin = apc1_cfg.get("reset_pin", APC1_RESET_DEFAULT_PIN)
     return set_pin, reset_pin
+
+
+def get_sleep_times(settings: dict):
+    """Return (display_sleep_s, apc1_sleep_s) from settings with defaults.
+
+    settings structure expects:
+      {
+        "power": {
+          "display_sleep_s": <int>,  # seconds before display sleeps
+          "apc1_sleep_s": <int>       # seconds before APC1 sleeps
+        }
+      }
+    """
+    power_cfg = (settings or {}).get("power", {})
+    display_sleep = power_cfg.get("display_sleep_s", 30)
+    apc1_sleep = power_cfg.get("apc1_sleep_s", 300)
+    return display_sleep, apc1_sleep

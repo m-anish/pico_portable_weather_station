@@ -9,5 +9,9 @@
   },
   "apc1": {
     "address": 18
+  },
+  "power": {
+    "display_sleep_s": 30,
+    "apc1_sleep_s": 300
   }
 }
