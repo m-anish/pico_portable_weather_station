@@ -2,14 +2,25 @@
 # Components: APC1, SHTC3, Battery, SSD1306 OLED, Rotary Encoder
 # Includes: Failsafe debug-exit (hold button 1s), Power Mgmt, Wake Logic
 
-import json, os, time, sys, machine
+import json, time, sys, machine
 from machine import I2C, Pin
 from ssd1306 import SSD1306_I2C
 from rotary_irq_rp2 import RotaryIRQ
 from apc1 import APC1
 from shtc3 import SHTC3
 from battery import Battery
-from display_utils import show_big
+from config import (
+    load_settings,
+    FONT_SCALES,
+    REFRESH_INTERVALS,
+    DISPLAY_SLEEP_S,
+    APC1_SLEEP_S,
+    SYSTEM_SLEEP_S,
+    SETTINGS_FILE,
+    get_apc1_pins,
+)
+from screens import available_screens, draw_screen as draw_named_screen
+from apc1_power import APC1Power
 
 # --- DEBUG Failsafe check (encoder button at startup) ---
 ENC_SW = 20  # encoder button pin
@@ -39,41 +50,10 @@ if held:
         time.sleep(0.2)
     sys.exit()
 
-SETTINGS_FILE = "settings.json"
-
-# -------- FONT SCALE SETTINGS --------
-FONT_SCALES = {
-    "temp_hum": [3, 3],
-    "pm": [1, 2, 2, 2],
-    "aqi": [2, 1],
-    "battery": [3, 3],
-    "resetwifi": [1.0, 1.0]
-}
-
-# -------- REFRESH INTERVALS --------
-REFRESH_INTERVALS = {
-    "sht": 5,
-    "pm": 10,
-    "aqi": 10,
-    "battery": 15,
-    "resetwifi": 0
-}
-
-# -------- SLEEP CONFIGURATION --------
-DISPLAY_SLEEP_S = 30
-APC1_SLEEP_S = 300
-SYSTEM_SLEEP_S = 600
+# configuration moved to lib/config.py
 
 
-# -------- LOAD SETTINGS --------
-def load_settings():
-    if SETTINGS_FILE in os.listdir():
-        try:
-            with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return {"i2c": {"sda": 16, "scl": 17}}
+# load_settings moved to lib/config.py
 
 
 # text scaling and drawing helpers moved to lib/display_utils.py
@@ -97,10 +77,13 @@ apc1 = APC1(i2c, apc1_addr) if has_apc1 else None
 sht = SHTC3(i2c) if has_shtc3 else None
 batt = Battery(adc_pin=26, divider_ratio=2.0)
 
-# APC1 SET pin
-APC1_SET_PIN = 21
-apc1_set = Pin(APC1_SET_PIN, Pin.OUT)
-apc1_set.value(1)
+# APC1 power helper: pins read from config with README defaults
+APC1_SET_PIN, APC1_RESET_PIN = get_apc1_pins(settings)
+apc1_power = APC1Power(set_pin=APC1_SET_PIN, reset_pin=APC1_RESET_PIN)
+
+# Reset the APC1 at boot, then enable it
+apc1_power.reset_pulse()
+apc1_power.enable()
 
 # Rotary encoder setup
 ENC_A, ENC_B = 18, 19
@@ -113,48 +96,14 @@ rot.set(0)
 
 
 # -------- SCREEN DEFINITIONS --------
-screens = []
-if sht: screens.append(("sht", "Temp & Humidity"))
-if apc1: screens += [("pm", "Particulates"), ("aqi", "AQI")]
-screens += [("battery", "Battery"), ("resetwifi", "Reset Wi-Fi")]
-
+screens = available_screens(sht, apc1)
 screen_idx, last_val = 0, 0
 
 
 # -------- SCREEN DRAW --------
 def draw_screen():
     name = screens[screen_idx][0]
-    oled.fill(0)
-
-    if name == "sht":
-        t, h = sht.measure()
-        show_big(oled, [f"T: {t:.1f}°C", f"H: {h:.1f}%"], FONT_SCALES["temp_hum"])
-
-    elif name == "pm" and apc1:
-        d = apc1.read_all()
-        show_big(oled, [
-            "Particulates",
-            f"1.0:{d['PM1.0']['value']:.0f}",
-            f"2.5:{d['PM2.5']['value']:.0f}",
-            f"10:{d['PM10']['value']:.0f}"
-        ], FONT_SCALES["pm"])
-
-    elif name == "aqi" and apc1:
-        d = apc1.read_all()
-        pm25 = d["PM2.5"]["value"]
-        aqi_val = APC1.compute_aqi_pm25(pm25)
-        aqi = int(aqi_val) if aqi_val is not None else 0
-        show_big(oled, [f"AQI:{aqi}", "Major:PM2.5"], FONT_SCALES["aqi"])
-
-    elif name == "battery":
-        v = batt.read_voltage()
-        p = batt.read_percentage()
-        show_big(oled, [f"{v:.2f}V", f"{p:.0f}%"], FONT_SCALES["battery"])
-
-    elif name == "resetwifi":
-        show_big(oled, ["Reset Wi-Fi", "Press button"], FONT_SCALES["resetwifi"])
-
-    oled.show()
+    draw_named_screen(name, oled, sht, apc1, batt, FONT_SCALES)
 
 
 # -------- POWER MANAGEMENT --------
@@ -170,8 +119,8 @@ def wake_up(_=None):
     changed = False
 
     # Wake APC1 only if it was asleep
-    if apc1_awake is False or apc1_set.value() == 0:
-        apc1_set.value(1)
+    if apc1_awake is False or not apc1_power.is_enabled():
+        apc1_power.enable()
         apc1_awake = True
         changed = True
 
@@ -234,14 +183,14 @@ try:
             print("Display off")
 
         if apc1_awake and idle_time > APC1_SLEEP_S:
-            apc1_set.value(0)
+            apc1_power.disable()
             apc1_awake = False
             print("APC1 sleep")
 
         if system_awake and idle_time > SYSTEM_SLEEP_S:
             print("Entering lightsleep...")
             oled.poweroff()
-            apc1_set.value(0)
+            apc1_power.disable()
             display_on = False
             apc1_awake = False
             system_awake = False
