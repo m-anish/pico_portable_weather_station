@@ -15,7 +15,6 @@ from config import (
     REFRESH_INTERVALS,
     DISPLAY_SLEEP_S,
     APC1_SLEEP_S,
-    SYSTEM_SLEEP_S,
     SETTINGS_FILE,
     get_apc1_pins,
 )
@@ -111,10 +110,9 @@ last_activity = time.time()
 last_refresh = 0
 display_on = True
 apc1_awake = True
-system_awake = True
 
 def wake_up(_=None):
-    global display_on, apc1_awake, system_awake, last_activity
+    global display_on, apc1_awake, last_activity
     last_activity = time.time()
     changed = False
 
@@ -129,11 +127,6 @@ def wake_up(_=None):
         oled.poweron()
         draw_screen()
         display_on = True
-        changed = True
-
-    # Wake system only if it was in lightsleep
-    if not system_awake:
-        system_awake = True
         changed = True
 
     if changed:
@@ -186,17 +179,6 @@ try:
             apc1_power.disable()
             apc1_awake = False
             print("APC1 sleep")
-
-        if system_awake and idle_time > SYSTEM_SLEEP_S:
-            print("Entering lightsleep...")
-            oled.poweroff()
-            apc1_power.disable()
-            display_on = False
-            apc1_awake = False
-            system_awake = False
-            machine.lightsleep()
-            print("Woke from sleep")
-            wake_up()
 
         time.sleep(0.05)
 

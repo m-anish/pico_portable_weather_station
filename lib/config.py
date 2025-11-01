@@ -27,7 +27,6 @@ REFRESH_INTERVALS = {
 # -------- SLEEP CONFIGURATION --------
 DISPLAY_SLEEP_S = 30
 APC1_SLEEP_S = 300
-SYSTEM_SLEEP_S = 600
 
 
 def load_settings():
