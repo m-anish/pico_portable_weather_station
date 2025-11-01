@@ -1,8 +1,8 @@
-# main.py — Starstuck Weather Display UI (v4)
-# Components: APC1, SHTC3, Battery sensor, SSD1306 OLED, Rotary encoder
-# Power management: OLED off → APC1 sleep → Pico lightsleep (wake on rotation or button)
+# main.py — Starstuck Weather Display UI (v5)
+# Components: APC1, SHTC3, Battery, SSD1306 OLED, Rotary Encoder
+# Includes: Failsafe debug-exit (hold button 1s), Power Mgmt, Wake Logic
 
-import json, os, time, machine
+import json, os, time, sys, machine
 from machine import I2C, Pin
 from ssd1306 import SSD1306_I2C
 from rotary_irq_rp2 import RotaryIRQ
@@ -11,30 +11,58 @@ from shtc3 import SHTC3
 from battery import Battery
 import framebuf
 
+# --- DEBUG Failsafe check (encoder button at startup) ---
+ENC_SW = 20  # encoder button pin
+btn = Pin(ENC_SW, Pin.IN, Pin.PULL_UP)
+led = Pin("LED", Pin.OUT)
+
+# 1 second hold detection
+held = True
+for _ in range(10):  # 10×100ms = 1s
+    if btn.value() == 1:
+        held = False
+        break
+    while True:
+        led.toggle()
+        time.sleep(0.5)
+
+if held:
+    print("DEBUG: Exited main.py early.")
+    i2c = I2C(0, sda=Pin(16), scl=Pin(17))
+    oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+    oled.fill(0)
+    oled.text("DEBUG:", 0, 0)
+    oled.text("Exited main.py", 0, 12)
+    oled.show()
+    for _ in range(6):
+        led.toggle()
+        time.sleep(0.2)
+    sys.exit()
+
 SETTINGS_FILE = "settings.json"
 
 # -------- FONT SCALE SETTINGS --------
 FONT_SCALES = {
-    "temp_hum": [3, 3],            # temperature, humidity
-    "pm": [1, 2, 2, 2],            # header, PM1.0, PM2.5, PM10
-    "aqi": [2, 1],                 # AQI, Major pollutant
-    "battery": [3, 3],             # voltage, percentage
-    "resetwifi": [1.0, 1.0]        # reset Wi-Fi lines
+    "temp_hum": [3, 3],
+    "pm": [1, 2, 2, 2],
+    "aqi": [2, 1],
+    "battery": [3, 3],
+    "resetwifi": [1.0, 1.0]
 }
 
 # -------- REFRESH INTERVALS --------
 REFRESH_INTERVALS = {
-    "sht": 5,         # Temp/Humidity every 5s
-    "pm": 10,         # Particulates every 10s
-    "aqi": 10,        # AQI every 10s
-    "battery": 15,    # Battery every 15s
-    "resetwifi": 0    # static screen
+    "sht": 5,
+    "pm": 10,
+    "aqi": 10,
+    "battery": 15,
+    "resetwifi": 0
 }
 
-# -------- SLEEP CONFIGURATION (seconds) --------
+# -------- SLEEP CONFIGURATION --------
 DISPLAY_SLEEP_S = 30
-APC1_SLEEP_S    = 300
-SYSTEM_SLEEP_S  = 600
+APC1_SLEEP_S = 300
+SYSTEM_SLEEP_S = 600
 
 
 # -------- LOAD SETTINGS --------
@@ -50,7 +78,6 @@ def load_settings():
 
 # -------- TEXT SCALING --------
 def text_scaled(oled, text, x, y, scale=1):
-    """Draw text scaled by integer/float factor."""
     if scale == 1:
         oled.text(text, x, y)
         return
@@ -100,14 +127,13 @@ batt = Battery(adc_pin=26, divider_ratio=2.0)
 # APC1 SET pin
 APC1_SET_PIN = 21
 apc1_set = Pin(APC1_SET_PIN, Pin.OUT)
-apc1_set.value(1)  # keep high (awake)
+apc1_set.value(1)
 
 # Rotary encoder setup
-ENC_A, ENC_B, ENC_SW = 18, 19, 20
+ENC_A, ENC_B = 18, 19
 rot = RotaryIRQ(pin_num_clk=ENC_A, pin_num_dt=ENC_B,
                 reverse=True, range_mode=RotaryIRQ.RANGE_UNBOUNDED)
 rot.set(0)
-btn = Pin(ENC_SW, Pin.IN, Pin.PULL_UP)
 
 
 # -------- AQI COMPUTATION --------
@@ -174,23 +200,17 @@ apc1_awake = True
 system_awake = True
 
 def wake_up(_=None):
-    """Wake device from any sleep state (rotation or button)."""
     global display_on, apc1_awake, system_awake, last_activity
     last_activity = time.time()
-
-    # Ensure APC1 is awake
     apc1_set.value(1)
     apc1_awake = True
-
     if not display_on:
         oled.poweron()
         draw_screen()
         display_on = True
-
     system_awake = True
     print("Wake-up triggered")
 
-# Encoder button interrupt wakes from lightsleep
 btn.irq(trigger=Pin.IRQ_FALLING, handler=wake_up)
 
 
@@ -200,12 +220,10 @@ draw_screen()
 try:
     while True:
         now = time.time()
-
-        # --- Encoder rotation ---
         val = rot.value()
         if val != last_val:
             last_activity = now
-            wake_up()  # rotation wakes up too
+            wake_up()
             if val > last_val:
                 screen_idx = (screen_idx + 1) % len(screens)
             else:
@@ -213,7 +231,6 @@ try:
             draw_screen()
             last_val = val
 
-        # --- Button press ---
         if not btn.value():
             last_activity = now
             wake_up()
@@ -225,16 +242,13 @@ try:
                 show_big(oled, ["Wi-Fi reset!", "Reboot to setup"], [1.5, 1])
                 time.sleep(2)
 
-        # --- Screen refresh ---
         screen_name = screens[screen_idx][0]
         interval = REFRESH_INTERVALS.get(screen_name, 0)
         if interval > 0 and now - last_refresh > interval:
             draw_screen()
             last_refresh = now
 
-        # --- Power management ---
         idle_time = now - last_activity
-
         if display_on and idle_time > DISPLAY_SLEEP_S:
             oled.poweroff()
             display_on = False
@@ -252,13 +266,13 @@ try:
             display_on = False
             apc1_awake = False
             system_awake = False
-            machine.lightsleep()  # wakes on button interrupt
+            machine.lightsleep()
             print("Woke from sleep")
             wake_up()
 
         time.sleep(0.05)
 
 except KeyboardInterrupt:
-    oled.fill(0)
+    oled.fill(0)    
     oled.text("Stopped", 0, 20)
     oled.show()

@@ -1,14 +1,10 @@
-# boot.py — Pico W boot + Wi-Fi setup logic
-# Uses wifi_helper.py and OLED display
-
-import machine, json, os, time
+import machine, json, os, time, sys
 from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 import wifi_helper
 
 SETTINGS_FILE = "settings.json"
 
-# --- Helper: load JSON settings ---
 def load_settings():
     if SETTINGS_FILE in os.listdir():
         try:
@@ -19,7 +15,6 @@ def load_settings():
     return {"wifi": {"ssid": "", "password": ""},
             "i2c": {"sda": 16, "scl": 17}}
 
-# --- Helper: save new Wi-Fi credentials ---
 def save_wifi_settings(ssid, password):
     s = load_settings()
     s["wifi"] = {"ssid": ssid, "password": password}
@@ -34,6 +29,33 @@ scl = settings["i2c"].get("scl", 17)
 i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
 oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
 
+# --- Failsafe: encoder button debug exit ---
+ENC_SW = 20  # Encoder button pin
+btn = Pin(ENC_SW, Pin.IN, Pin.PULL_UP)
+led = Pin("LED", Pin.OUT)
+
+# Hold-detect logic (1 second continuous press)
+held = True
+for _ in range(10):  # check for ~1.0s (10×100ms)
+    if btn.value() == 1:
+        held = False
+        break
+    print("DEBUG mode active. Halted execution.")
+    while True:
+        led.toggle()
+        time.sleep(0.5)
+
+if held:
+    oled.fill(0)
+    oled.text("DEBUG:", 0, 0)
+    oled.text("Exited program.", 0, 12)
+    oled.show()
+    print("DEBUG: Exited program.")
+    for _ in range(6):
+        led.toggle()
+        time.sleep(0.2)
+    sys.exit()
+
 oled.fill(0)
 oled.text("Booting...", 0, 0)
 oled.show()
@@ -45,7 +67,6 @@ password = wifi.get("password", "")
 
 connected = False
 
-# --- Decision logic ---
 if ssid and password:
     oled.fill(0)
     oled.text("Wi-Fi:", 0, 0)
@@ -64,9 +85,7 @@ if ssid and password:
         oled.show()
         print("Wi-Fi connection failed; continuing without network.")
         time.sleep(1)
-
 else:
-    # --- No credentials: start AP mode for setup ---
     oled.fill(0)
     oled.text("No Wi-Fi set", 0, 0)
     oled.text("AP mode starting", 0, 12)
@@ -80,7 +99,6 @@ else:
     )
     machine.reset()
 
-# --- Continue to main app ---
 time.sleep(0.5)
 oled.fill(0)
 oled.text("Starting main...", 0, 24)
