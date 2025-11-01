@@ -20,6 +20,7 @@ from config import (
 )
 from screens import available_screens, draw_screen as draw_named_screen
 from apc1_power import APC1Power
+from display_utils import show_big
 
 # --- DEBUG Failsafe check (encoder button at startup) ---
 ENC_SW = 20  # encoder button pin
@@ -32,9 +33,7 @@ for _ in range(10):  # 10×100ms = 1s
     if btn.value() == 1:
         held = False
         break
-    while True:
-        led.toggle()
-        time.sleep(0.5)
+    time.sleep(0.1)
 
 if held:
     print("DEBUG: Exited main.py early.")

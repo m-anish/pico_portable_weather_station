@@ -40,17 +40,14 @@ for _ in range(10):  # check for ~1.0s (10×100ms)
     if btn.value() == 1:
         held = False
         break
-    print("DEBUG mode active. Halted execution.")
-    while True:
-        led.toggle()
-        time.sleep(0.5)
+    time.sleep(0.1)
 
 if held:
+    print("DEBUG: Exited program.")
     oled.fill(0)
     oled.text("DEBUG:", 0, 0)
     oled.text("Exited program.", 0, 12)
     oled.show()
-    print("DEBUG: Exited program.")
     for _ in range(6):
         led.toggle()
         time.sleep(0.2)
