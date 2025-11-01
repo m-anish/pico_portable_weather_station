@@ -1,6 +1,6 @@
-# Raspberry Pi Pico MicroPython Project
+# Pico Portable Weather Sensor
 
-A basic MicroPython project for Raspberry Pi Pico with a simple LED blink example.
+A portable weather sensor project for Raspberry Pi Pico with MicroPython, designed to measure and log environmental data.
 
 ## Getting Started
 
