@@ -1,0 +1,13 @@
+{
+  "wifi": {
+    "ssid": "",
+    "password": ""
+  },
+  "i2c": {
+    "sda": 16,
+    "scl": 17
+  },
+  "apc1": {
+    "address": 18
+  }
+}
