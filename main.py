@@ -9,7 +9,7 @@ from rotary_irq_rp2 import RotaryIRQ
 from apc1 import APC1
 from shtc3 import SHTC3
 from battery import Battery
-import framebuf
+from display_utils import show_big
 
 # --- DEBUG Failsafe check (encoder button at startup) ---
 ENC_SW = 20  # encoder button pin
@@ -76,34 +76,7 @@ def load_settings():
     return {"i2c": {"sda": 16, "scl": 17}}
 
 
-# -------- TEXT SCALING --------
-def text_scaled(oled, text, x, y, scale=1):
-    if scale == 1:
-        oled.text(text, x, y)
-        return
-    w = len(text) * 8
-    h = 8
-    buf = bytearray(w * h // 8)
-    fb = framebuf.FrameBuffer(buf, w, h, framebuf.MONO_HLSB)
-    fb.fill(0)
-    fb.text(text, 0, 0, 1)
-    for yy in range(h):
-        for xx in range(w):
-            if fb.pixel(xx, yy):
-                for dy in range(int(scale)):
-                    for dx in range(int(scale)):
-                        oled.pixel(int(x + xx * scale + dx), int(y + yy * scale + dy), 1)
-
-
-# -------- OLED DRAW UTIL --------
-def show_big(oled, lines, scales):
-    oled.fill(0)
-    y = 0
-    for i, l in enumerate(lines):
-        s = scales[i] if i < len(scales) else 1
-        text_scaled(oled, l, 0, int(y), s)
-        y += 9 * s + 2
-    oled.show()
+# text scaling and drawing helpers moved to lib/display_utils.py
 
 
 # -------- INITIALIZATION --------
@@ -136,16 +109,7 @@ rot = RotaryIRQ(pin_num_clk=ENC_A, pin_num_dt=ENC_B,
 rot.set(0)
 
 
-# -------- AQI COMPUTATION --------
-def compute_aqi_pm25(pm25):
-    if pm25 <= 12: return 50 * pm25 / 12
-    if pm25 <= 35.4: return 50 + (pm25 - 12.1) * (100 - 51) / (35.4 - 12.1)
-    if pm25 <= 55.4: return 101 + (pm25 - 35.5) * (150 - 101) / (55.4 - 35.5)
-    if pm25 <= 150.4: return 151 + (pm25 - 55.5) * (200 - 151) / (150.4 - 55.5)
-    if pm25 <= 250.4: return 201 + (pm25 - 150.5) * (300 - 201) / (250.4 - 150.5)
-    if pm25 <= 350.4: return 301 + (pm25 - 250.5) * (400 - 301) / (350.4 - 250.5)
-    if pm25 <= 500.4: return 401 + (pm25 - 350.5) * (500 - 401) / (500.4 - 350.5)
-    return 500
+# AQI computation now provided by APC1.compute_aqi_pm25
 
 
 # -------- SCREEN DEFINITIONS --------
@@ -178,7 +142,8 @@ def draw_screen():
     elif name == "aqi" and apc1:
         d = apc1.read_all()
         pm25 = d["PM2.5"]["value"]
-        aqi = int(compute_aqi_pm25(pm25))
+        aqi_val = APC1.compute_aqi_pm25(pm25)
+        aqi = int(aqi_val) if aqi_val is not None else 0
         show_big(oled, [f"AQI:{aqi}", "Major:PM2.5"], FONT_SCALES["aqi"])
 
     elif name == "battery":
@@ -202,14 +167,28 @@ system_awake = True
 def wake_up(_=None):
     global display_on, apc1_awake, system_awake, last_activity
     last_activity = time.time()
-    apc1_set.value(1)
-    apc1_awake = True
+    changed = False
+
+    # Wake APC1 only if it was asleep
+    if apc1_awake is False or apc1_set.value() == 0:
+        apc1_set.value(1)
+        apc1_awake = True
+        changed = True
+
+    # Wake display only if it was off
     if not display_on:
         oled.poweron()
         draw_screen()
         display_on = True
-    system_awake = True
-    print("Wake-up triggered")
+        changed = True
+
+    # Wake system only if it was in lightsleep
+    if not system_awake:
+        system_awake = True
+        changed = True
+
+    if changed:
+        print("Wake-up triggered")
 
 btn.irq(trigger=Pin.IRQ_FALLING, handler=wake_up)
 

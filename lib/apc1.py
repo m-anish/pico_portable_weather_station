@@ -81,3 +81,28 @@ class APC1:
             except OSError:
                 results[name] = {"value": None, "unit": unit, "description": desc}
         return results
+
+    @staticmethod
+    def compute_aqi_pm25(pm25):
+        """Compute AQI value from PM2.5 concentration (µg/m³) using EPA breakpoints.
+
+        Returns an integer in the 0-500 range. If pm25 is None, returns None.
+        """
+        if pm25 is None:
+            return None
+        # Breakpoint-based linear interpolation
+        if pm25 <= 12:
+            return 50 * pm25 / 12
+        if pm25 <= 35.4:
+            return 50 + (pm25 - 12.1) * (100 - 51) / (35.4 - 12.1)
+        if pm25 <= 55.4:
+            return 101 + (pm25 - 35.5) * (150 - 101) / (55.4 - 35.5)
+        if pm25 <= 150.4:
+            return 151 + (pm25 - 55.5) * (200 - 151) / (150.4 - 55.5)
+        if pm25 <= 250.4:
+            return 201 + (pm25 - 150.5) * (300 - 201) / (250.4 - 150.5)
+        if pm25 <= 350.4:
+            return 301 + (pm25 - 250.5) * (400 - 301) / (350.4 - 250.5)
+        if pm25 <= 500.4:
+            return 401 + (pm25 - 350.5) * (500 - 401) / (500.4 - 350.5)
+        return 500
