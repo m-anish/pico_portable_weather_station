@@ -34,8 +34,11 @@ class APC1Power:
         return self.set.value() == 1 and self._enabled
 
     def reset_pulse(self, pulse_ms=20):
-        """Issue a short active-low reset pulse."""
-        # Ensure device is enabled prior or after reset as needed
+        """Issue a short active-low reset pulse, then ensure both SET and RESET are high."""
+        # Issue active-low reset pulse
         self.reset.value(0)
         time.sleep_ms(pulse_ms)
+        # Ensure both SET and RESET are high after reset
         self.reset.value(1)
+        self.set.value(1)
+        self._enabled = True

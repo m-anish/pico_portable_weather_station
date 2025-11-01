@@ -28,6 +28,8 @@ _import_font('fonts.ezFBfont_PTSans_06_latin_09', 'PTSans_06')
 _import_font('fonts.ezFBfont_PTSans_08_latin_14', 'PTSans_08')
 _import_font('fonts.ezFBfont_helvB12_latin_20', 'helvB12')
 _import_font('fonts.ezFBfont_PTSans_20_latin_30', 'PTSans_20')
+_import_font('fonts.ezFBfont_open_iconic_all_1x_0x0_0xFFF_08', 'icons')
+_import_font('fonts.ezFBfont_amstrad_cpc_extended_latin_08', 'amstrad')
 
 
 # Font name aliases for backward compatibility and convenience
@@ -40,6 +42,9 @@ _FONT_ALIASES = {
     'medium': 'PTSans_08',
     'large': 'helvB12',
     'xlarge': 'PTSans_20',
+    'symbols': 'icons',       # Icon/symbol font
+    'icon': 'icons',
+    'amstrad': 'amstrad',     # Extended character set font
 }
 
 
