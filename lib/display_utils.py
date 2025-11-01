@@ -191,21 +191,36 @@ class Marquee:
             for xx in range(self.width):
                 self.device.pixel(self.x + xx, self.y + yy, 0)
         
-        # Draw text starting at -offset
+        # Draw text starting at -offset (for left-to-right scrolling)
+        # Text scrolls from right to left, so start_x decreases as offset increases
         start_x = self.x - self._offset
         self._fr.text(self._text, start_x, self.y, font=self.font_name, scale=1)
         
-        # Advance offset
+        # Calculate text width - try to get accurate width from FontRenderer
+        text_w = 0
         font_module = get_font_module(self.font_name)
-        if font_module:
-            # Estimate width (approximate: assume average char width)
-            avg_width = font_module.max_width() if hasattr(font_module, 'max_width') else 8
-            text_w = len(self._text) * avg_width
-        else:
-            text_w = len(self._text) * 8
+        if font_module and hasattr(self._fr, '_get_ez_instance'):
+            ez_inst = self._fr._get_ez_instance(self.font_name)
+            if ez_inst:
+                try:
+                    text_w, _ = ez_inst.size(self._text)
+                except Exception:
+                    pass
         
+        # Fallback: estimate width based on font
+        if text_w == 0:
+            if font_module:
+                avg_width = (font_module.max_width()
+                             if hasattr(font_module, 'max_width') else 16)
+                text_w = len(self._text) * avg_width
+            else:
+                text_w = len(self._text) * 16  # Larger default for bigger fonts
+        
+        # Advance offset for scrolling (text scrolls right to left)
         self._offset += self.speed_px
-        if self._offset > text_w + self.width:  # Gap before repeating
+        # When text has scrolled completely past left edge, cycle to next
+        # Add some padding (width of screen) before repeating
+        if self._offset >= text_w + self.width + 20:
             self._offset = 0
             return True
         return False

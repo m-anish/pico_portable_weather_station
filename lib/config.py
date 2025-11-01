@@ -21,6 +21,7 @@ REFRESH_INTERVALS = {
     "pm": 10,
     "aqi": 10,
     "battery": 15,
+    "scroll": 0,  # Scroll screen updates via step_scroll_screen()
     "resetwifi": 0,
 }
 

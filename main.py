@@ -17,7 +17,8 @@ from config import (
     get_apc1_pins,
     get_sleep_times,
 )
-from screens import available_screens, draw_screen as draw_named_screen
+from screens import (available_screens, draw_screen as draw_named_screen,
+                     step_scroll_screen)
 from apc1_power import APC1Power
 from display_utils import show_big
 
@@ -165,10 +166,18 @@ try:
                 time.sleep(2)
 
         screen_name = screens[screen_idx][0]
-        interval = REFRESH_INTERVALS.get(screen_name, 0)
-        if interval > 0 and now - last_refresh > interval:
-            draw_screen()
-            last_refresh = now
+        
+        # Handle scrolling screen separately
+        if screen_name == "scroll":
+            # Step the scrolling marquee (pass sensors for periodic refresh)
+            step_scroll_screen(oled, sht, apc1, batt, now)
+            oled.show()
+        else:
+            # Regular refresh for other screens
+            interval = REFRESH_INTERVALS.get(screen_name, 0)
+            if interval > 0 and now - last_refresh > interval:
+                draw_screen()
+                last_refresh = now
 
         idle_time = now - last_activity
         if display_on and idle_time > DISPLAY_SLEEP_S:
