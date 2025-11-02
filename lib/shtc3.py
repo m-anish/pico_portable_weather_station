@@ -34,24 +34,31 @@ class SHTC3:
     def measure(self):
         """
         Trigger a single measurement (no clock stretching, high precision).
-        Returns tuple: (temperature_C, humidity_%RH)
+        Returns tuple: (temperature_C, humidity_%RH) or (None, None) on error
         """
-        # Wake up, measure, sleep again
-        self._wake()
-        self._write_cmd(0x7866)  # Measure T & RH, high precision, no clock stretching
-        time.sleep_ms(15)
+        try:
+            # Wake up, measure, sleep again
+            self._wake()
+            self._write_cmd(0x7866)  # Measure T & RH, high precision, no clock stretching
+            time.sleep_ms(15)
 
-        data = self._read_bytes(6)
-        self._sleep()
+            data = self._read_bytes(6)
+            if len(data) != 6:
+                raise RuntimeError("I2C read error: expected 6 bytes, got {}".format(len(data)))
 
-        # Unpack raw values (ignore CRC bytes)
-        t_raw = (data[0] << 8) | data[1]
-        rh_raw = (data[3] << 8) | data[4]
+            self._sleep()
 
-        # Convert using datasheet formulas
-        temperature = -45 + (175 * t_raw / 65535.0)
-        humidity = 100 * rh_raw / 65535.0
-        return (temperature, humidity)
+            # Unpack raw values (ignore CRC bytes)
+            t_raw = (data[0] << 8) | data[1]
+            rh_raw = (data[3] << 8) | data[4]
+
+            # Convert using datasheet formulas
+            temperature = -45 + (175 * t_raw / 65535.0)
+            humidity = 100 * rh_raw / 65535.0
+            return (temperature, humidity)
+        except Exception as e:
+            # Return None values on any error to allow graceful degradation
+            return (None, None)
 
     # ---- Optional ----
     def reset(self):

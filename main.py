@@ -62,25 +62,44 @@ if held:
 
 
 # -------- INITIALIZATION --------
-settings = load_settings()
-sda = settings["i2c"].get("sda", 16)
-scl = settings["i2c"].get("scl", 17)
-i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
+try:
+    settings = load_settings()
+    sda = settings["i2c"].get("sda", 16)
+    scl = settings["i2c"].get("scl", 17)
+    i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
 
-# Get sleep times from settings
-DISPLAY_SLEEP_S, APC1_SLEEP_S = get_sleep_times(settings)
+    # Get sleep times from settings
+    DISPLAY_SLEEP_S, APC1_SLEEP_S = get_sleep_times(settings)
 
-oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
-devices = i2c.scan()
-print("I2C scan:", devices)
+    oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+    devices = i2c.scan()
+    print("I2C scan:", devices)
 
-apc1_addr = settings.get("apc1", {}).get("address", 18)
-has_apc1 = apc1_addr in devices
-has_shtc3 = 0x70 in devices
+    apc1_addr = settings.get("apc1", {}).get("address", 18)
+    has_apc1 = apc1_addr in devices
+    has_shtc3 = 0x70 in devices
 
-apc1 = APC1(i2c, apc1_addr) if has_apc1 else None
-sht = SHTC3(i2c) if has_shtc3 else None
-batt = Battery(adc_pin=26, divider_ratio=2.0)
+    apc1 = APC1(i2c, apc1_addr) if has_apc1 else None
+    sht = SHTC3(i2c) if has_shtc3 else None
+    batt = Battery(adc_pin=26, divider_ratio=2.0)
+
+    # Initialize watchdog timer for main loop stability
+    from machine import WDT
+    wdt = WDT(timeout=8000)  # 8 second timeout (max for Pico WDT)
+
+except Exception as e:
+    # Critical initialization error - show on OLED if possible
+    try:
+        if 'oled' in locals():
+            oled.fill(0)
+            oled.text("INIT ERROR", 0, 0)
+            oled.text(str(e)[:20], 0, 16)
+            oled.show()
+        print("Initialization error:", e)
+    except:
+        pass
+    # Reset on critical error
+    machine.reset()
 
 # APC1 power helper: pins read from config with README defaults
 APC1_SET_PIN, APC1_RESET_PIN = get_apc1_pins(settings)
@@ -207,6 +226,9 @@ try:
             apc1_power.disable()
             apc1_awake = False
             print("APC1 sleep")
+
+        # Feed watchdog to prevent reset
+        wdt.feed()
 
         time.sleep(0.05)
 

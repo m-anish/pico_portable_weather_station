@@ -54,20 +54,24 @@ class APC1:
         """
         Read a single parameter by name, e.g. 'PM2.5' or 'T-comp'.
 
-        :return: dict with {value, unit, description}
+        :return: dict with {value, unit, description} or None on error
         """
-        reg_entry = next((r for r in self._REG_MAP if r[0] == name), None)
-        if reg_entry is None:
-            raise ValueError("Unknown register name: " + name)
+        try:
+            reg_entry = next((r for r in self._REG_MAP if r[0] == name), None)
+            if reg_entry is None:
+                raise ValueError("Unknown register name: " + name)
 
-        reg, length, scale, unit, desc = reg_entry[1], reg_entry[2], reg_entry[3], reg_entry[4], reg_entry[5]
-        data = self._read_reg(reg, length)
-        if len(data) != length:
-            raise RuntimeError("I2C read error")
+            reg, length, scale, unit, desc = reg_entry[1], reg_entry[2], reg_entry[3], reg_entry[4], reg_entry[5]
+            data = self._read_reg(reg, length)
+            if len(data) != length:
+                raise RuntimeError("I2C read error: expected {} bytes, got {}".format(length, len(data)))
 
-        raw_val = int.from_bytes(data, "big")
-        val = raw_val * scale
-        return {"value": val, "unit": unit, "description": desc}
+            raw_val = int.from_bytes(data, "big")
+            val = raw_val * scale
+            return {"value": val, "unit": unit, "description": desc}
+        except Exception as e:
+            # Return None on any error to allow graceful degradation
+            return None
 
     def read_all(self):
         """Return a dictionary of all available sensor readings."""

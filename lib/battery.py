@@ -32,21 +32,29 @@ class Battery:
         self.charge_pin = Pin(charge_pin, Pin.IN, Pin.PULL_UP) if charge_pin is not None else None
 
     def read_voltage(self):
-        """Return measured battery voltage in volts."""
-        raw = self.adc.read_u16()           # 0–65535
-        v_adc = raw * self.vref / 65535.0   # Convert to ADC input voltage
-        v_batt = v_adc * self.divider_ratio # Compensate divider
-        return v_batt
+        """Return measured battery voltage in volts, or None on error."""
+        try:
+            raw = self.adc.read_u16()           # 0–65535
+            v_adc = raw * self.vref / 65535.0   # Convert to ADC input voltage
+            v_batt = v_adc * self.divider_ratio # Compensate divider
+            return v_batt
+        except Exception as e:
+            return None
 
     def read_percentage(self):
-        """Estimate battery percentage (simple linear model)."""
-        v = self.read_voltage()
-        if v <= self.v_empty:
-            return 0
-        elif v >= self.v_full:
-            return 100
-        else:
-            return int((v - self.v_empty) / (self.v_full - self.v_empty) * 100)
+        """Estimate battery percentage (simple linear model), or None on error."""
+        try:
+            v = self.read_voltage()
+            if v is None:
+                return None
+            if v <= self.v_empty:
+                return 0
+            elif v >= self.v_full:
+                return 100
+            else:
+                return int((v - self.v_empty) / (self.v_full - self.v_empty) * 100)
+        except Exception as e:
+            return None
 
     def is_charging(self):
         """
