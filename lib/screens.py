@@ -11,8 +11,7 @@ from apc1 import APC1
 
 # Global state for scrolling screen
 _scroll_marquee = None
-_scroll_readings = []
-_scroll_index = 0
+_scroll_text = ""
 _scroll_last_update = 0
 _scroll_refresh_interval = 10  # Refresh readings every 10 seconds
 
@@ -29,7 +28,7 @@ def available_screens(sht, apc1):
 
 
 def _collect_readings(sht, apc1, batt):
-    """Collect all available sensor readings into formatted strings."""
+    """Collect all available sensor readings into a single formatted string for scrolling."""
     readings = []
 
     # Temperature and Humidity
@@ -70,21 +69,31 @@ def _collect_readings(sht, apc1, batt):
         except Exception:
             readings.append("Battery: --")
 
-    return readings if readings else ["No sensors"]
+    # Join into a single string with separators for continuous scrolling
+    if readings:
+        return " | ".join(readings)
+    else:
+        return "No sensors"
 
 
 def draw_screen(name, oled, sht, apc1, batt, font_scales):
     """Render a named screen to the OLED using connected sensors."""
-    global _scroll_marquee, _scroll_readings, _scroll_index
+    global _scroll_marquee, _scroll_text
     oled.fill(0)
 
     if name == "sht" and sht:
-        t, h = sht.measure()
+        try:
+            t, h = sht.measure()
+        except Exception:
+            t, h = None, None
         # Heading - use amstrad font for consistency
         draw_text(oled, "Temp & Humidity", 0, 0, font="amstrad", align="left")
         # Values - use large font for readability
-        draw_block(oled, [f"T: {t:.1f}°C", f"H: {h:.1f}%"],
-                   0, 16, font="helvB12", line_spacing=2)
+        if t is not None and h is not None:
+            draw_block(oled, [f"T: {t:.1f}°C", f"H: {h:.1f}%"],
+                       0, 16, font="helvB12", line_spacing=2)
+        else:
+            draw_block(oled, ["T: --", "H: --"], 0, 16, font="helvB12", line_spacing=2)
 
     elif name == "pm" and apc1:
         try:
@@ -150,25 +159,30 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
             draw_text(oled, "Error", 0, 20, font="amstrad")
 
     elif name == "battery" and batt:
-        v = batt.read_voltage()
-        p = batt.read_percentage()
+        try:
+            v = batt.read_voltage()
+            p = batt.read_percentage()
+        except Exception:
+            v, p = None, None
         # Use amstrad font for title consistency
         draw_text(oled, "Battery", 0, 0, font="amstrad", align="left")
-        draw_text(oled, f"{v:.2f}V", 0, 18, font="helvB12")
-        draw_text(oled, f"{p:.0f}%", 80, 18, font="helvB12")
+        if v is not None and p is not None:
+            draw_text(oled, f"{v:.2f}V", 0, 18, font="helvB12")
+            draw_text(oled, f"{p:.0f}%", 80, 18, font="helvB12")
+        else:
+            draw_text(oled, "--", 0, 18, font="helvB12")
+            draw_text(oled, "--", 80, 18, font="helvB12")
 
     elif name == "scroll":
         # Scrolling screen - show title and initialize marquee if needed
         # Don't fill screen - let marquee manage its area
         # Only clear and redraw title area (top 16 pixels)
-        for y in range(0, 16):
-            for x in range(128):
-                oled.pixel(x, y, 0)
+        oled.fill_rect(0, 0, 128, 16, 0)
         draw_text(oled, "All Readings", 0, 0, font="amstrad", align="left")
 
-        # Collect all readings and initialize last update time
-        global _scroll_readings, _scroll_last_update
-        _scroll_readings = _collect_readings(sht, apc1, batt)
+        # Collect all readings into a single string and initialize last update time
+        global _scroll_text, _scroll_last_update
+        _scroll_text = _collect_readings(sht, apc1, batt)
         _scroll_last_update = time.time()
 
         # Initialize marquee if needed - use larger font for readability
@@ -176,17 +190,12 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
             _scroll_marquee = Marquee(oled, x=0, y=20, width=128,
                                       font="helvB12", speed_px=1)
 
-        # If we have readings, start with current index
-        if _scroll_readings:
-            if _scroll_index >= len(_scroll_readings):
-                _scroll_index = 0
-            current_text = _scroll_readings[_scroll_index]
-            _scroll_marquee.start(current_text)
+        # Start marquee with the full text
+        if _scroll_text:
+            _scroll_marquee.start(_scroll_text)
         else:
             # Clear marquee area if no data
-            for y in range(20, 64):
-                for x in range(128):
-                    oled.pixel(x, y, 0)
+            oled.fill_rect(0, 20, 128, 44, 0)
             draw_text(oled, "No data", 0, 40, font="amstrad", align="left")
 
     elif name == "resetwifi":
@@ -198,7 +207,6 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
     if name != "scroll" and _scroll_marquee:
         _scroll_marquee.stop()
         _scroll_marquee = None
-        _scroll_index = 0
 
     oled.show()
 
@@ -213,50 +221,32 @@ def step_scroll_screen(oled, sht, apc1, batt, current_time):
         batt: Battery instance (or None)
         current_time: Current time.time() value
 
-    Returns True if marquee completed (time to switch to next reading).
+    Returns True (always, since it's continuous scrolling).
     """
-    global _scroll_marquee, _scroll_index
-    global _scroll_readings, _scroll_last_update
+    global _scroll_marquee, _scroll_text
 
     # Ensure marquee is initialized
     if _scroll_marquee is None:
         return False
 
-    # Refresh readings periodically
-    if (current_time - _scroll_last_update) >= _scroll_refresh_interval:
-        new_readings = _collect_readings(sht, apc1, batt)
-        if new_readings != _scroll_readings:
-            _scroll_readings = new_readings
-            _scroll_last_update = current_time
-            # Reset index if current reading no longer exists
-            if _scroll_index >= len(_scroll_readings):
-                _scroll_index = 0
-            # Restart marquee with new readings if needed
-            if _scroll_readings:
-                current_text = _scroll_readings[_scroll_index]
-                _scroll_marquee.start(current_text)
+    # Ensure marquee is active
+    if not _scroll_marquee.active() and _scroll_text:
+        _scroll_marquee.start(_scroll_text)
 
-    # Only redraw title if needed (to avoid interfering with marquee)
-    # The marquee step() will handle its own area
-
-    # Ensure marquee is active with current reading
-    if not _scroll_marquee.active() and _scroll_readings:
-        current_text = _scroll_readings[_scroll_index]
-        _scroll_marquee.start(current_text)
-
-    # Step the marquee (this handles its own area clearing and redrawing)
+    # Step the marquee (continuous scrolling)
     if _scroll_marquee.active():
         # Redraw title first (in case it got cleared)
         draw_text(oled, "All Readings", 0, 0, font="amstrad", align="left")
         # Step the marquee
         completed = _scroll_marquee.step()
 
-        if completed and _scroll_readings:
-            # Move to next reading when marquee completes
-            _scroll_index = (_scroll_index + 1) % len(_scroll_readings)
-            next_text = _scroll_readings[_scroll_index]
-            _scroll_marquee.start(next_text)
+        # Refresh readings only after a full scroll cycle completes
+        if completed:
+            new_text = _collect_readings(sht, apc1, batt)
+            if new_text != _scroll_text:
+                _scroll_text = new_text
+                # Restart marquee with updated text
+                if _scroll_text:
+                    _scroll_marquee.start(_scroll_text)
 
-        return completed
-
-    return False
+    return True

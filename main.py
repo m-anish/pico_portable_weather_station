@@ -3,6 +3,10 @@
 # Includes: Failsafe debug-exit (hold button 1s), Power Mgmt, Wake Logic
 
 import json, time, sys, machine
+try:
+    import micropython
+except ImportError:
+    micropython = None
 from machine import I2C, Pin
 from ssd1306 import SSD1306_I2C
 from rotary_irq_rp2 import RotaryIRQ
@@ -134,7 +138,15 @@ def wake_up(_=None):
     if changed:
         print("Wake-up triggered")
 
-btn.irq(trigger=Pin.IRQ_FALLING, handler=wake_up)
+# Replace heavy ISR with lightweight flag-based handler
+_wake_flag = False
+
+def _btn_irq_handler(pin):
+    # Only set a flag; avoid allocations or I2C in ISR
+    global _wake_flag
+    _wake_flag = True
+
+btn.irq(trigger=Pin.IRQ_FALLING, handler=_btn_irq_handler)
 
 
 # -------- MAIN LOOP --------
@@ -143,6 +155,12 @@ draw_screen()
 try:
     while True:
         now = time.time()
+
+        # Handle deferred wake-up from IRQ
+        if _wake_flag:
+            _wake_flag = False
+            wake_up()
+
         val = rot.value()
         if val != last_val:
             last_activity = now

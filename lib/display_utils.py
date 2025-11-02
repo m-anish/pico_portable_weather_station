@@ -186,10 +186,14 @@ class Marquee:
             h = font_module.height()
         else:
             h = 10  # Default fallback height
-        
-        for yy in range(h):
-            for xx in range(self.width):
-                self.device.pixel(self.x + xx, self.y + yy, 0)
+        # Use faster fill_rect instead of per-pixel loops
+        try:
+            self.device.fill_rect(self.x, self.y, self.width, h, 0)
+        except Exception:
+            # Fallback if device lacks fill_rect
+            for yy in range(h):
+                for xx in range(self.width):
+                    self.device.pixel(self.x + xx, self.y + yy, 0)
         
         # Draw text starting at -offset (for left-to-right scrolling)
         # Text scrolls from right to left, so start_x decreases as offset increases
@@ -237,9 +241,12 @@ class Marquee:
         # Software fallback: clear area
         font_module = get_font_module(self.font_name)
         h = font_module.height() if font_module else 10
-        for yy in range(h):
-            for xx in range(self.width):
-                self.device.pixel(self.x + xx, self.y + yy, 0)
+        try:
+            self.device.fill_rect(self.x, self.y, self.width, h, 0)
+        except Exception:
+            for yy in range(h):
+                for xx in range(self.width):
+                    self.device.pixel(self.x + xx, self.y + yy, 0)
         self._text = ""
         self._offset = 0
     
