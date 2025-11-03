@@ -24,6 +24,7 @@ def available_screens(cache):
     return [
         ("sht", "Temp & Humidity"),
         ("pm", "Particles"),
+        ("gases", "Gases"),
         ("aqi", "AQI"),
         ("sysinfo", "System Info"),
         ("settings", "Settings")
@@ -69,6 +70,22 @@ def draw_screen(name, oled, cache, font_scales):
         if pm25 is not None:
             # Has data - show values
             lines = [f"PM2.5: {pm25:.0f}", f"PM10: {pm10:.0f}"]
+            draw_block(oled, lines, 0, 16, font="helvB12", line_spacing=2)
+        else:
+            # Sensor not available - show informative message
+            draw_text(oled, "APC1 sensor", 0, 20, font="amstrad")
+            draw_text(oled, "not detected", 0, 32, font="amstrad")
+
+    elif name == "gases":
+        # Get cached gas concentration data
+        tvoc, eco2, _ = cache.get_apc1_gases()
+        
+        # Title with units in parentheses
+        draw_text(oled, "Gases (ppb)", 0, 0, font="amstrad", align="left")
+        
+        if tvoc is not None and eco2 is not None:
+            # Has data - show values
+            lines = [f"TVOC: {tvoc:.0f}", f"eCO2: {eco2:.0f}"]
             draw_block(oled, lines, 0, 16, font="helvB12", line_spacing=2)
         else:
             # Sensor not available - show informative message
@@ -136,24 +153,39 @@ def draw_screen(name, oled, cache, font_scales):
     oled.show()
 
 
-def draw_settings_menu(oled, selected_index=0):
-    """Draw the settings submenu with options.
+def draw_settings_menu(oled, selected_index=0, scroll_offset=0):
+    """Draw the settings submenu with options and scrolling support.
     
     Args:
         oled: SSD1306 display instance
         selected_index: Currently selected menu item (0-based)
+        scroll_offset: Scroll offset for viewing window (0-based)
     """
-    options = ["Reset WiFi", "Select Mode", "Debug", "Back"]
+    options = ["Reset WiFi", "Select Mode", "Display", "Debug", "Back"]
+    visible_items = 4  # Show 4 items at once
     
     oled.fill(0)
     draw_text(oled, "SETTINGS", 0, 0, font="amstrad", align="left")
     oled.hline(0, 10, 128, 1)
     
-    # Draw menu options with selection indicator
-    for i, option in enumerate(options):
+    # Show scroll indicators if needed
+    if scroll_offset > 0:
+        # Can scroll up - show up arrow
+        draw_text(oled, "▲", 120, 12, font="amstrad", align="left")
+    
+    if scroll_offset + visible_items < len(options):
+        # Can scroll down - show down arrow
+        draw_text(oled, "▼", 120, 52, font="amstrad", align="left")
+    
+    # Draw visible menu options with selection indicator
+    for i in range(visible_items):
+        option_index = scroll_offset + i
+        if option_index >= len(options):
+            break
+        
         y = 15 + i * 12
-        prefix = "> " if i == selected_index else "  "
-        draw_text(oled, prefix + option, 0, y, font="amstrad", align="left")
+        prefix = "> " if option_index == selected_index else "  "
+        draw_text(oled, prefix + options[option_index], 0, y, font="amstrad", align="left")
     
     oled.show()
 
@@ -205,6 +237,56 @@ def draw_reset_confirmation(oled, selected_index=0):
         y = 30 + i * 12
         prefix = "> " if i == selected_index else "  "
         draw_text(oled, prefix + option, 0, y, font="amstrad", align="left")
+    
+    oled.show()
+
+
+def draw_display_settings(oled, timeout_value, mode="adjusting", confirm_index=0):
+    """Draw the display settings screen for adjusting timeout.
+    
+    Args:
+        oled: SSD1306 display instance
+        timeout_value: Current timeout value in seconds (0 means "Never")
+        mode: "adjusting" or "confirming"
+        confirm_index: Selected option in confirming mode (0=Save, 1=Cancel)
+    """
+    oled.fill(0)
+    draw_text(oled, "DISPLAY TIMEOUT", 0, 0, font="amstrad", align="left")
+    oled.hline(0, 10, 128, 1)
+    
+    if mode == "adjusting":
+        # Adjusting mode: show value and instructions
+        if timeout_value == 0:
+            value_text = "Never"
+        else:
+            value_text = f"{timeout_value}s"
+        
+        # Center the value - calculate x position manually for better centering
+        # Approximate character width for helvB12: ~12 pixels per char
+        text_width = len(value_text) * 12
+        x_pos = (128 - text_width) // 2
+        draw_text(oled, value_text, x_pos, 24, font="helvB12", align="left")
+        
+        # Instructions
+        draw_text(oled, "Turn: adjust", 0, 44, font="amstrad", align="left")
+        draw_text(oled, "Press: confirm", 0, 54, font="amstrad", align="left")
+    
+    else:
+        # Confirming mode: show Save/Cancel options
+        if timeout_value == 0:
+            value_text = "Never"
+        else:
+            value_text = f"{timeout_value}s"
+        
+        draw_text(oled, f"Save: {value_text}", 0, 14, font="amstrad", align="left")
+        oled.hline(0, 24, 128, 1)
+        
+        # Draw Save/Cancel options
+        options = ["Save", "Cancel"]
+        for i, option in enumerate(options):
+            y = 28 + i * 12
+            prefix = "> " if i == confirm_index else "  "
+            draw_text(oled, prefix + option, 0, y, font="amstrad", align="left")
     
     oled.show()
 

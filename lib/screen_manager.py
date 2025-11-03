@@ -34,7 +34,13 @@ class ScreenManager:
         self.in_submenu = False
         self.submenu_type = None  # "settings" or "mode_select"
         self.submenu_index = 0
+        self.scroll_offset = 0  # For scrollable menus
         self.menu_stack = []  # Track menu hierarchy for back navigation
+        
+        # Display timeout state
+        self.display_timeout_mode = "adjusting"  # "adjusting" or "confirming"
+        self.timeout_confirm_index = 0  # 0=Save, 1=Cancel
+        self.original_timeout_value = None  # Store original value for cancel
     
     def update_available_screens(self):
         """Update the list of available screens based on current sensor data."""
@@ -115,6 +121,17 @@ class ScreenManager:
         self.submenu_index = 0
         print("Entered reset WiFi confirmation")
     
+    def enter_display_settings(self):
+        """Enter the display timeout settings editor."""
+        from runtime_state import get_screen_timeout
+        self.menu_stack.append(("settings", self.submenu_index))
+        self.submenu_type = "display_settings"
+        self.timeout_value = get_screen_timeout(default=30)
+        self.original_timeout_value = self.timeout_value  # Store for cancel
+        self.display_timeout_mode = "adjusting"  # Start in adjusting mode
+        self.timeout_confirm_index = 0  # Reset to Save
+        print(f"Entered display settings (current: {self.timeout_value}s)")
+    
     def enter_debug_menu(self):
         """Enter the debug submenu."""
         self.menu_stack.append(("settings", self.submenu_index))
@@ -138,35 +155,94 @@ class ScreenManager:
             self.needs_redraw = True  # Force immediate redraw
             print("Exited to main screens")
     
-    def next_menu_item(self):
-        """Move to next item in current submenu."""
-        if self.submenu_type == "settings":
-            max_items = 4  # Reset WiFi, Select Mode, Debug, Back
-        elif self.submenu_type == "mode_select":
-            max_items = 3  # Station, Mobile, Back
-        elif self.submenu_type == "reset_confirm":
-            max_items = 3  # Yes, No, Back
-        elif self.submenu_type == "debug":
-            max_items = 2  # Exit Program, Back
-        else:
+    def adjust_timeout_up(self):
+        """Increase timeout value with variable step sizes."""
+        if self.submenu_type != "display_settings":
             return
         
-        self.submenu_index = (self.submenu_index + 1) % max_items
+        if self.timeout_value == 0:
+            # From "Never", go back to 600s
+            self.timeout_value = 600
+        elif self.timeout_value < 60:
+            # 10-60s: increment by 10
+            self.timeout_value = min(60, self.timeout_value + 10)
+        elif self.timeout_value < 180:
+            # 61-180s: increment by 20
+            self.timeout_value = min(180, self.timeout_value + 20)
+        elif self.timeout_value < 600:
+            # 181-600s: increment by 30
+            self.timeout_value = min(600, self.timeout_value + 30)
+        else:
+            # At 600s, go to "Never" (0)
+            self.timeout_value = 0
+    
+    def adjust_timeout_down(self):
+        """Decrease timeout value with variable step sizes."""
+        if self.submenu_type != "display_settings":
+            return
+        
+        if self.timeout_value == 0:
+            # From "Never", go to 600s
+            self.timeout_value = 600
+        elif self.timeout_value <= 60:
+            # 10-60s: decrement by 10
+            self.timeout_value = max(10, self.timeout_value - 10)
+        elif self.timeout_value <= 180:
+            # 61-180s: decrement by 20
+            self.timeout_value = max(60, self.timeout_value - 20)
+        else:
+            # 181-600s: decrement by 30
+            self.timeout_value = max(180, self.timeout_value - 30)
+    
+    def next_menu_item(self):
+        """Move to next item in current submenu with scrolling support."""
+        if self.submenu_type == "settings":
+            max_items = 5  # Reset WiFi, Select Mode, Display, Debug, Back
+            visible_items = 4  # Show 4 items at once
+            
+            # Move selection
+            self.submenu_index = (self.submenu_index + 1) % max_items
+            
+            # Update scroll offset if needed
+            if self.submenu_index >= self.scroll_offset + visible_items:
+                self.scroll_offset = min(self.submenu_index - visible_items + 1, max_items - visible_items)
+            elif self.submenu_index < self.scroll_offset:
+                self.scroll_offset = self.submenu_index
+                
+        elif self.submenu_type == "mode_select":
+            max_items = 3  # Station, Mobile, Back
+            self.submenu_index = (self.submenu_index + 1) % max_items
+        elif self.submenu_type == "reset_confirm":
+            max_items = 3  # Yes, No, Back
+            self.submenu_index = (self.submenu_index + 1) % max_items
+        elif self.submenu_type == "debug":
+            max_items = 2  # Exit Program, Back
+            self.submenu_index = (self.submenu_index + 1) % max_items
     
     def prev_menu_item(self):
-        """Move to previous item in current submenu."""
+        """Move to previous item in current submenu with scrolling support."""
         if self.submenu_type == "settings":
-            max_items = 4  # Reset WiFi, Select Mode, Debug, Back
+            max_items = 5  # Reset WiFi, Select Mode, Display, Debug, Back
+            visible_items = 4  # Show 4 items at once
+            
+            # Move selection
+            self.submenu_index = (self.submenu_index - 1) % max_items
+            
+            # Update scroll offset if needed
+            if self.submenu_index < self.scroll_offset:
+                self.scroll_offset = self.submenu_index
+            elif self.submenu_index >= self.scroll_offset + visible_items:
+                self.scroll_offset = min(self.submenu_index - visible_items + 1, max_items - visible_items)
+                
         elif self.submenu_type == "mode_select":
             max_items = 3  # Station, Mobile, Back
+            self.submenu_index = (self.submenu_index - 1) % max_items
         elif self.submenu_type == "reset_confirm":
             max_items = 3  # Yes, No, Back
+            self.submenu_index = (self.submenu_index - 1) % max_items
         elif self.submenu_type == "debug":
             max_items = 2  # Exit Program, Back
-        else:
-            return
-        
-        self.submenu_index = (self.submenu_index - 1) % max_items
+            self.submenu_index = (self.submenu_index - 1) % max_items
     
     def handle_button(self):
         """Handle button press for current screen or menu.
@@ -197,10 +273,14 @@ class ScreenManager:
                     self.enter_mode_selection()
                     return None
                 elif self.submenu_index == 2:
+                    # Display selected
+                    self.enter_display_settings()
+                    return None
+                elif self.submenu_index == 3:
                     # Debug selected
                     self.enter_debug_menu()
                     return None
-                elif self.submenu_index == 3:
+                elif self.submenu_index == 4:
                     # Back selected
                     self.exit_submenu()
                     return None
@@ -233,6 +313,34 @@ class ScreenManager:
                     # Back selected
                     self.exit_submenu()  # Return to settings menu
                     return None
+            
+            elif self.submenu_type == "display_settings":
+                # Display settings: Two-step confirmation
+                if self.display_timeout_mode == "adjusting":
+                    # First button press: enter confirmation mode
+                    self.display_timeout_mode = "confirming"
+                    self.timeout_confirm_index = 0  # Default to Save
+                    print("Entering timeout confirmation mode")
+                    return None
+                else:
+                    # In confirming mode: handle Save/Cancel
+                    if self.timeout_confirm_index == 0:
+                        # Save selected
+                        from runtime_state import set_screen_timeout
+                        if set_screen_timeout(self.timeout_value):
+                            print(f"Screen timeout saved: {self.timeout_value}s")
+                            self.exit_submenu()  # Return to settings menu
+                            return {"type": "timeout_saved", "value": self.timeout_value}
+                        else:
+                            print("Failed to save timeout")
+                            self.display_timeout_mode = "adjusting"
+                            return None
+                    else:
+                        # Cancel selected - restore original value
+                        self.timeout_value = self.original_timeout_value
+                        print("Timeout change cancelled")
+                        self.exit_submenu()  # Return to settings menu
+                        return None
             
             elif self.submenu_type == "debug":
                 # Debug menu: Exit Program, Back

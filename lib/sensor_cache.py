@@ -158,6 +158,22 @@ class SensorCache:
         finally:
             self._release_lock()
     
+    def get_apc1_gases(self):
+        """Get gas concentration readings (TVOC and eCO2).
+        
+        Returns:
+            tuple: (tvoc, eco2, timestamp)
+        """
+        self._acquire_lock()
+        try:
+            return (
+                self._data['tvoc'],
+                self._data['eco2'],
+                self._data['pm_timestamp']
+            )
+        finally:
+            self._release_lock()
+    
     def get_apc1_all(self):
         """Get all APC1 readings as a dictionary (for scrolling display).
         

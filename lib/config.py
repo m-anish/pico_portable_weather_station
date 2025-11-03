@@ -19,6 +19,7 @@ FONT_SCALES = {
 REFRESH_INTERVALS = {
     "sht": 5,
     "pm": 10,
+    "gases": 10,
     "aqi": 10,
     "sysinfo": 15,
     "scroll": 0,  # Scroll screen updates via step_scroll_screen()
@@ -65,21 +66,17 @@ def get_apc1_pins(settings: dict):
     return set_pin, reset_pin
 
 
-def get_sleep_times(settings: dict):
-    """Return (display_sleep_s, apc1_sleep_s) from settings with defaults.
-
-    settings structure expects:
-      {
-        "power": {
-          "display_sleep_s": <int>,  # seconds before display sleeps
-          "apc1_sleep_s": <int>       # seconds before APC1 sleeps
-        }
-      }
+def get_screen_timeout():
+    """Return screen timeout from runtime state.
+    
+    Returns timeout in seconds for both display and APC1 sleep (in mobile mode).
+    In station mode, APC1 follows its own cycle schedule.
+    
+    Returns:
+        int: Timeout in seconds (0 means "Never")
     """
-    power_cfg = (settings or {}).get("power", {})
-    display_sleep = power_cfg.get("display_sleep_s", 30)
-    apc1_sleep = power_cfg.get("apc1_sleep_s", 300)
-    return display_sleep, apc1_sleep
+    from runtime_state import get_screen_timeout
+    return get_screen_timeout(default=30)
 
 
 def get_sensor_intervals(settings: dict):

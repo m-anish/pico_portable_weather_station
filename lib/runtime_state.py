@@ -32,7 +32,7 @@ def load_runtime_state():
 
 
 def save_runtime_state(state):
-    """Save runtime state to file.
+    """Save runtime state to file with formatting.
     
     Args:
         state: Dictionary with runtime state
@@ -42,7 +42,7 @@ def save_runtime_state(state):
     """
     try:
         with open(RUNTIME_FILE, "w") as f:
-            json.dump(state, f)
+            json.dump(state, f, indent=2)
         return True
     except Exception as e:
         print(f"Failed to save runtime state: {e}")
@@ -74,4 +74,32 @@ def set_mode(mode):
     """
     state = load_runtime_state()
     state["mode"] = mode
+    return save_runtime_state(state)
+
+
+def get_screen_timeout(default=30):
+    """Get screen timeout from runtime state.
+    
+    Args:
+        default: Default timeout in seconds if not set
+    
+    Returns:
+        int: Timeout in seconds (0 means "Never")
+    """
+    state = load_runtime_state()
+    timeout = state.get("screen_timeout")
+    return timeout if timeout is not None else default
+
+
+def set_screen_timeout(timeout):
+    """Set screen timeout in runtime state.
+    
+    Args:
+        timeout: Timeout in seconds (0 means "Never")
+    
+    Returns:
+        bool: True if save successful, False otherwise
+    """
+    state = load_runtime_state()
+    state["screen_timeout"] = timeout
     return save_runtime_state(state)

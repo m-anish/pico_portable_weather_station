@@ -32,7 +32,7 @@ from config import (
     FONT_SCALES,
     SETTINGS_FILE,
     get_apc1_pins,
-    get_sleep_times,
+    get_screen_timeout,
     get_sensor_intervals,
     get_display_settings,
     get_ntp_settings,
@@ -88,11 +88,9 @@ try:
     i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
 
     # Get configuration
-    DISPLAY_SLEEP_S, APC1_SLEEP_S = get_sleep_times(settings)
     SHTC3_INTERVAL, APC1_INTERVAL, BATTERY_INTERVAL = get_sensor_intervals(settings)
     DISPLAY_FPS, INPUT_POLL_HZ = get_display_settings(settings)
 
-    print(f"Config: Display sleep={DISPLAY_SLEEP_S}s, APC1 sleep={APC1_SLEEP_S}s")
     print(f"Sensors: SHTC3={SHTC3_INTERVAL}s, APC1={APC1_INTERVAL}s, Battery={BATTERY_INTERVAL}s")
     print(f"Display: {DISPLAY_FPS} FPS, Input: {INPUT_POLL_HZ} Hz")
 
@@ -225,7 +223,7 @@ async def display_task():
     print(f"Display task started ({DISPLAY_FPS} FPS)")
     interval_ms = int(1000 / DISPLAY_FPS)
     
-    from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation, draw_debug_menu
+    from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation, draw_debug_menu, draw_display_settings
     from config import load_settings, get_operation_mode
     
     # Wait a moment for initialization to complete before first draw
@@ -240,7 +238,7 @@ async def display_task():
             if screen_mgr.in_submenu:
                 # Draw appropriate submenu
                 if screen_mgr.submenu_type == "settings":
-                    draw_settings_menu(oled, screen_mgr.submenu_index)
+                    draw_settings_menu(oled, screen_mgr.submenu_index, screen_mgr.scroll_offset)
                 elif screen_mgr.submenu_type == "mode_select":
                     # Get current mode for display
                     current_settings = load_settings()
@@ -249,6 +247,11 @@ async def display_task():
                 elif screen_mgr.submenu_type == "reset_confirm":
                     # Draw reset confirmation
                     draw_reset_confirmation(oled, screen_mgr.submenu_index)
+                elif screen_mgr.submenu_type == "display_settings":
+                    # Draw display timeout settings with mode
+                    draw_display_settings(oled, screen_mgr.timeout_value, 
+                                        screen_mgr.display_timeout_mode,
+                                        screen_mgr.timeout_confirm_index)
                 elif screen_mgr.submenu_type == "debug":
                     # Draw debug menu
                     draw_debug_menu(oled, screen_mgr.submenu_index)
@@ -279,12 +282,28 @@ async def input_task():
                 
                 # Handle encoder rotation based on current state
                 if screen_mgr.in_submenu:
-                    # Navigate menu items
-                    if current_val > last_encoder_val:
-                        screen_mgr.next_menu_item()
+                    # Check if in display settings
+                    if screen_mgr.submenu_type == "display_settings":
+                        if screen_mgr.display_timeout_mode == "adjusting":
+                            # Adjusting mode: modify timeout value
+                            if current_val > last_encoder_val:
+                                screen_mgr.adjust_timeout_up()
+                            else:
+                                screen_mgr.adjust_timeout_down()
+                        else:
+                            # Confirming mode: toggle between Save/Cancel
+                            if current_val > last_encoder_val:
+                                screen_mgr.timeout_confirm_index = (screen_mgr.timeout_confirm_index + 1) % 2
+                            else:
+                                screen_mgr.timeout_confirm_index = (screen_mgr.timeout_confirm_index - 1) % 2
+                        # Display settings will be redrawn by display_task
                     else:
-                        screen_mgr.prev_menu_item()
-                    # Menu will be redrawn by display_task
+                        # Navigate menu items
+                        if current_val > last_encoder_val:
+                            screen_mgr.next_menu_item()
+                        else:
+                            screen_mgr.prev_menu_item()
+                        # Menu will be redrawn by display_task
                 else:
                     # Navigate main screens
                     if current_val > last_encoder_val:
@@ -330,6 +349,17 @@ async def input_task():
                                 show_big(oled, ["Save failed!", "Try again"], [1.5, 1])
                                 await asyncio.sleep(2)
                         
+                        elif action_type == "timeout_saved":
+                            # Timeout was saved, show confirmation briefly
+                            timeout_val = action.get("value", 0)
+                            if timeout_val == 0:
+                                show_big(oled, ["Timeout: Never"], [1.5])
+                            else:
+                                show_big(oled, [f"Timeout: {timeout_val}s"], [1.5])
+                            await asyncio.sleep(1)
+                            # Reset idle timer to apply new timeout immediately
+                            wake_up()
+                        
                         elif action_type == "exit_program":
                             # Exit program gracefully via KeyboardInterrupt
                             oled.fill(0)
@@ -362,23 +392,32 @@ async def power_mgmt_task():
     """Async task to manage power states based on inactivity."""
     global display_on, apc1_awake
     
-    print(f"Power mgmt started (display: {DISPLAY_SLEEP_S}s, apc1: {APC1_SLEEP_S}s)")
+    # Get initial timeout
+    screen_timeout = get_screen_timeout()
+    timeout_str = "Never" if screen_timeout == 0 else f"{screen_timeout}s"
+    print(f"Power mgmt started (timeout: {timeout_str})")
     
     while True:
         try:
+            # Get current timeout (may have changed via settings)
+            screen_timeout = get_screen_timeout()
             idle_time = get_idle_time()
             
             # Display power management
-            if display_on and idle_time > DISPLAY_SLEEP_S:
+            if screen_timeout > 0 and display_on and idle_time > screen_timeout:
                 oled.poweroff()
                 display_on = False
                 print("Display off")
             
-            # APC1 power management
-            if apc1_awake and idle_time > APC1_SLEEP_S:
-                apc1_power.disable()
-                apc1_awake = False
-                print("APC1 sleep")
+            # APC1 power management (only in mobile mode, never in station mode)
+            operation_mode = get_operation_mode(settings)
+            if operation_mode == "mobile":
+                # In mobile mode, APC1 follows display timeout
+                if screen_timeout > 0 and apc1_awake and idle_time > screen_timeout:
+                    apc1_power.disable()
+                    apc1_awake = False
+                    print("APC1 sleep (mobile mode)")
+            # In station mode, APC1 is managed by apc1_station_mode_task
         
         except Exception as e:
             print(f"Power mgmt error: {e}")

@@ -14,10 +14,6 @@
     "set_pin": 22,
     "reset_pin": 21
   },
-  "power": {
-    "display_sleep_s": 30,
-    "apc1_sleep_s": 300
-  },
   "sensors": {
     "shtc3_interval_s": 5,
     "apc1_interval_s": 10,

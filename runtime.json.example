@@ -1,3 +1,4 @@
 {
-  "mode": "mobile"
+  "mode": null,
+  "screen_timeout": 30
 }
