@@ -28,6 +28,7 @@ from config import (
     get_sleep_times,
     get_sensor_intervals,
     get_display_settings,
+    get_ntp_settings,
 )
 from apc1_power import APC1Power
 from display_utils import show_big
@@ -106,6 +107,18 @@ try:
     # Initialize screen manager
     screen_mgr = ScreenManager(cache, FONT_SCALES)
     print(f"Screen manager initialized: {len(screen_mgr.screens)} screens")
+    
+    # Initialize NTP sync if enabled
+    ntp_sync = None
+    ntp_cfg = get_ntp_settings(settings)
+    if ntp_cfg["enabled"]:
+        from ntp_helper import NTPSync
+        ntp_sync = NTPSync(
+            servers=ntp_cfg["servers"],
+            timezone_offset_hours=ntp_cfg["timezone_offset_hours"],
+            sync_interval_s=ntp_cfg["sync_interval_s"]
+        )
+        print(f"NTP sync configured (timezone: UTC{ntp_sync._format_offset()})")
 
 except Exception as e:
     # Critical initialization error - show on OLED if possible
@@ -290,6 +303,11 @@ async def main():
     """Main async coordinator - starts all tasks."""
     print("Starting async tasks...")
     
+    # Perform initial NTP sync before starting other tasks (if enabled)
+    if ntp_sync:
+        print("Performing initial NTP sync...")
+        await ntp_sync.sync_time_async()
+    
     # Create task list
     tasks = [
         asyncio.create_task(read_shtc3_task(cache, sht, SHTC3_INTERVAL)),
@@ -301,6 +319,11 @@ async def main():
         asyncio.create_task(watchdog_task(wdt, 5)),
         asyncio.create_task(screen_update_task()),
     ]
+    
+    # Add NTP periodic sync task if enabled
+    if ntp_sync:
+        from ntp_helper import ntp_sync_task
+        tasks.append(asyncio.create_task(ntp_sync_task(ntp_sync, initial_sync=False)))
     
     print(f"Started {len(tasks)} async tasks")
     print("=== System Running ===")

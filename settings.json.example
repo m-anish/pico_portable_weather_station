@@ -24,5 +24,19 @@
   "wifi": {
     "ssid": "",
     "password": ""
+  },
+  "blynk": {
+    "enabled": false,
+    "template_id": "",
+    "template_name": "",
+    "auth_token": "",
+    "mqtt_broker": "blynk.cloud",
+    "publish_interval_s": 60
+  },
+  "ntp": {
+    "enabled": true,
+    "servers": ["pool.ntp.org", "time.google.com"],
+    "timezone_offset_hours": 5.5,
+    "sync_interval_s": 3600
   }
 }

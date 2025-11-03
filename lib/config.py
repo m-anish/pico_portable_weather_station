@@ -122,3 +122,57 @@ def get_display_settings(settings: dict):
     refresh_fps = display_cfg.get("refresh_fps", 20)
     input_poll_hz = display_cfg.get("input_poll_hz", 50)
     return refresh_fps, input_poll_hz
+
+
+def get_blynk_settings(settings: dict):
+    """Return Blynk MQTT settings from settings with defaults.
+    
+    settings structure expects:
+      {
+        "blynk": {
+          "enabled": <bool>,           # Enable/disable Blynk integration
+          "template_id": <str>,        # Blynk template ID
+          "template_name": <str>,      # Blynk template name
+          "auth_token": <str>,         # Blynk authentication token
+          "mqtt_broker": <str>,        # MQTT broker address
+          "publish_interval_s": <int>  # Data publish interval in seconds
+        }
+      }
+    
+    Returns:
+        dict: Blynk configuration dictionary
+    """
+    blynk_cfg = (settings or {}).get("blynk", {})
+    return {
+        "enabled": blynk_cfg.get("enabled", False),
+        "template_id": blynk_cfg.get("template_id", ""),
+        "template_name": blynk_cfg.get("template_name", ""),
+        "auth_token": blynk_cfg.get("auth_token", ""),
+        "mqtt_broker": blynk_cfg.get("mqtt_broker", "blynk.cloud"),
+        "publish_interval_s": blynk_cfg.get("publish_interval_s", 60)
+    }
+
+
+def get_ntp_settings(settings: dict):
+    """Return NTP time synchronization settings from settings with defaults.
+    
+    settings structure expects:
+      {
+        "ntp": {
+          "enabled": <bool>,                # Enable/disable NTP sync
+          "servers": <list>,                # List of NTP server hostnames
+          "timezone_offset_hours": <float>, # Timezone offset in hours (e.g., 5.5 for IST)
+          "sync_interval_s": <int>          # Re-sync interval in seconds
+        }
+      }
+    
+    Returns:
+        dict: NTP configuration dictionary
+    """
+    ntp_cfg = (settings or {}).get("ntp", {})
+    return {
+        "enabled": ntp_cfg.get("enabled", True),
+        "servers": ntp_cfg.get("servers", ["pool.ntp.org"]),
+        "timezone_offset_hours": ntp_cfg.get("timezone_offset_hours", 0.0),
+        "sync_interval_s": ntp_cfg.get("sync_interval_s", 3600)
+    }

@@ -1,17 +1,42 @@
 {
-  "wifi": {
-    "ssid": "",
-    "password": ""
-  },
   "i2c": {
     "sda": 16,
     "scl": 17
   },
   "apc1": {
-    "address": 18
+    "address": 18,
+    "set_pin": 22,
+    "reset_pin": 21
   },
   "power": {
     "display_sleep_s": 30,
     "apc1_sleep_s": 300
+  },
+  "sensors": {
+    "shtc3_interval_s": 5,
+    "apc1_interval_s": 10,
+    "battery_interval_s": 15
+  },
+  "display": {
+    "refresh_fps": 20,
+    "input_poll_hz": 50
+  },
+  "wifi": {
+    "ssid": "com",
+    "password": "www.dalailama.com"
+  },
+  "blynk": {
+    "enabled": true,
+    "template_id": "TMPL3XHMWZZpP",
+    "template_name": "PICO W",
+    "auth_token": "ztX0C_7Wqdyk4KoGRm56V4YppDWOVQeo",
+    "mqtt_broker": "blynk.cloud",
+    "publish_interval_s": 60
+  },
+  "ntp": {
+    "enabled": true,
+    "servers": ["pool.ntp.org", "time.google.com"],
+    "timezone_offset_hours": 5.5,
+    "sync_interval_s": 3600
   }
 }

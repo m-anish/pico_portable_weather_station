@@ -5,8 +5,28 @@
 # This includes no assurances about being fit for any specific purpose.
 
 import gc, sys, time, machine, json, asyncio
-import config
+from config import load_settings, get_blynk_settings, get_ntp_settings
 from umqtt.simple import MQTTClient, MQTTException
+
+# Load Blynk configuration from settings.json
+_settings = load_settings()
+_blynk_cfg = get_blynk_settings(_settings)
+_ntp_cfg = get_ntp_settings(_settings)
+
+# Extract config values for backward compatibility
+BLYNK_MQTT_BROKER = _blynk_cfg["mqtt_broker"]
+BLYNK_AUTH_TOKEN = _blynk_cfg["auth_token"]
+BLYNK_TEMPLATE_ID = _blynk_cfg["template_id"]
+
+# Initialize NTP sync if enabled
+_ntp_sync = None
+if _ntp_cfg["enabled"]:
+    from ntp_helper import NTPSync
+    _ntp_sync = NTPSync(
+        servers=_ntp_cfg["servers"],
+        timezone_offset_hours=_ntp_cfg["timezone_offset_hours"],
+        sync_interval_s=_ntp_cfg["sync_interval_s"]
+    )
 
 def _dummy(*args):
     pass
@@ -67,8 +87,8 @@ if sys.platform in ("esp32", "rp2", "linux"):
     # ISRG Root X1, expires: Mon, 04 Jun 2035 11:04:38 GMT
     ssl_ctx.load_verify_locations(cafile="ISRG_Root_X1.der")
 
-mqtt = MQTTClient(client_id="", server=config.BLYNK_MQTT_BROKER, ssl=ssl_ctx,
-                  user="device", password=config.BLYNK_AUTH_TOKEN, keepalive=45)
+mqtt = MQTTClient(client_id="", server=BLYNK_MQTT_BROKER, ssl=ssl_ctx,
+                  user="device", password=BLYNK_AUTH_TOKEN, keepalive=45)
 mqtt.set_callback(_on_message)
 
 async def _mqtt_connect():
@@ -82,8 +102,8 @@ async def _mqtt_connect():
     print("Connected to Blynk.Cloud", "[secure]" if ssl_ctx else "[insecure]")
 
     info = {
-        "type": config.BLYNK_TEMPLATE_ID,
-        "tmpl": config.BLYNK_TEMPLATE_ID,
+        "type": BLYNK_TEMPLATE_ID,
+        "tmpl": BLYNK_TEMPLATE_ID,
         "ver":  firmware_version,
         "rxbuff": 1024
     }
@@ -100,9 +120,10 @@ async def task():
     while True:
         await asyncio.sleep_ms(10)
         if not connected:
-            if ssl_ctx:
-                while not update_ntp_time():
-                    await asyncio.sleep(1)
+            # Sync time before SSL connection if NTP is enabled
+            if ssl_ctx and _ntp_sync and not _ntp_sync.is_synced():
+                print("NTP sync required for SSL connection...")
+                await _ntp_sync.sync_time_async()
             try:
                 await _mqtt_connect()
                 connected = True
@@ -128,27 +149,3 @@ async def task():
                     on_disconnected()
                 except Exception as e:
                     sys.print_exception(e)
-
-# Utilities
-
-def time2str(t):
-    y, m, d, H, M, S, w, j = t
-    a = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[w]
-    return f"{a} {y}-{m:02d}-{d:02d} {H:02d}:{M:02d}:{S:02d}"
-
-def update_ntp_time():
-    Jan24 = 756_864_000 if (time.gmtime(0)[0] == 2000) else 1_704_067_200
-    if time.time() > Jan24:
-        return True
-
-    print("Getting NTP time...")
-    import ntptime
-    try:
-        ntptime.timeout = 5
-        ntptime.settime()
-        if time.time() > Jan24:
-            print("UTC Time:", time2str(time.gmtime()))
-            return True
-    except Exception as e:
-        print("NTP failed:", e)
-    return False
