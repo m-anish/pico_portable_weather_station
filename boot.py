@@ -34,7 +34,7 @@ if held:
     for _ in range(6):
         led.toggle()
         time.sleep(0.2)
-    sys.exit()
+    raise KeyboardInterrupt
 
 oled.fill(0)
 oled.text("Booting...", 0, 0)

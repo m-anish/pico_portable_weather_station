@@ -76,7 +76,7 @@ if held:
     for _ in range(6):
         led.toggle()
         time.sleep(0.2)
-    sys.exit()
+    raise KeyboardInterrupt
 
 # -------- INITIALIZATION --------
 print("=== Async Weather Station Starting ===")
@@ -331,7 +331,7 @@ async def input_task():
                                 await asyncio.sleep(2)
                         
                         elif action_type == "exit_program":
-                            # Exit program gracefully
+                            # Exit program gracefully via KeyboardInterrupt
                             oled.fill(0)
                             oled.text("Exiting...", 30, 20)
                             oled.text("Connect to", 20, 32)
@@ -339,7 +339,7 @@ async def input_task():
                             oled.show()
                             print("DEBUG: Exiting program gracefully")
                             await asyncio.sleep(1)
-                            sys.exit()
+                            raise KeyboardInterrupt
                     
                     # Legacy string action support
                     elif action == "resetwifi":
