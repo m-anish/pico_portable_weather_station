@@ -20,8 +20,8 @@
     "battery_interval_s": 15
   },
   "display": {
-    "refresh_fps": 5,
-    "input_poll_hz": 20
+    "refresh_fps": 2,
+    "input_poll_hz": 10
   },
   "blynk": {
     "enabled": false,
@@ -29,7 +29,7 @@
     "template_name": "",
     "auth_token": "",
     "mqtt_broker": "blynk.cloud",
-    "mqtt_update_interval_s": 30
+    "mqtt_update_interval_s": 60
   },
   "ntp": {
     "enabled": true,
@@ -41,7 +41,7 @@
     "enabled": true,
     "port": 80,
     "session_timeout_s": 300,
-    "refresh_interval_s": 10,
+    "refresh_interval_s": 20,
     "max_connections": 2,
     "response_timeout_s": 30,
     "chunk_size": 512

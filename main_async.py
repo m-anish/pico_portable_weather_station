@@ -86,6 +86,7 @@ try:
     settings = load_settings()
     sda = settings["i2c"].get("sda", 16)
     scl = settings["i2c"].get("scl", 17)
+    # Use 400kHz - works with OLED and APC1 (despite datasheet stating 100kHz)
     i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400000)
 
     # Get configuration
@@ -107,11 +108,28 @@ try:
     oled.show()
     time.sleep(2)  # Show splash for 2 seconds
 
+    # Initialize APC1 power control BEFORE I2C scan
+    # This ensures APC1 is powered on even after soft reset
+    APC1_SET_PIN, APC1_RESET_PIN = get_apc1_pins(settings)
+    apc1_power = APC1Power(set_pin=APC1_SET_PIN, reset_pin=APC1_RESET_PIN)
+    
+    # Always reset and enable APC1 at boot to handle soft reset case
+    print("Initializing APC1 power...")
+    apc1_power.enable()
+    apc1_power.reset_pulse()
+    time.sleep(2)  # Wait 150ms for APC1 to fully power up before I2C scan
+    print("APC1 powered on")
+
     devices = i2c.scan()
     print("I2C scan:", [hex(d) for d in devices])
 
     apc1_addr = settings.get("apc1", {}).get("address", 18)
     has_apc1 = apc1_addr in devices
+    
+    if has_apc1:
+        print(f"✓ APC1 detected at {hex(apc1_addr)}")
+    else:
+        print(f"⚠ APC1 not found at {hex(apc1_addr)}")
     has_shtc3 = 0x70 in devices
 
     apc1 = APC1(i2c, apc1_addr) if has_apc1 else None
@@ -158,25 +176,24 @@ try:
 
 except Exception as e:
     # Critical initialization error - show on OLED if possible
+    import sys
+    print("="*40)
+    print("INITIALIZATION ERROR:")
+    print("="*40)
+    sys.print_exception(e)
+    print("="*40)
     try:
         if 'oled' in locals():
             oled.fill(0)
             oled.text("INIT ERROR", 0, 0)
             oled.text(str(e)[:20], 0, 16)
             oled.show()
-        print("Initialization error:", e)
     except:
         pass
-    # Reset on critical error
-    machine.reset()
-
-# APC1 power helper: pins read from config with README defaults
-APC1_SET_PIN, APC1_RESET_PIN = get_apc1_pins(settings)
-apc1_power = APC1Power(set_pin=APC1_SET_PIN, reset_pin=APC1_RESET_PIN)
-
-# Reset the APC1 at boot, then enable it
-apc1_power.reset_pulse()
-apc1_power.enable()
+    # Don't auto-reset so we can see the error
+    print("\n*** HALTED - Please check error above ***")
+    while True:
+        time.sleep(1)
 
 # Rotary encoder setup
 ENC_A, ENC_B = 18, 19
@@ -389,12 +406,13 @@ async def input_task():
         await asyncio.sleep_ms(interval_ms)
 
 
-async def power_mgmt_task():
-    """Async task to manage power states based on inactivity with web awareness."""
+async def power_mgmt_task(webserver_sessions=None):
+    """Async task to manage power states based on inactivity with web awareness.
+    
+    Args:
+        webserver_sessions: WebSessionManager instance for web presence detection
+    """
     global display_on, apc1_awake
-
-    # Import webserver module to check for active sessions
-    webserver_sessions = None
 
     # Get initial timeout
     screen_timeout = get_screen_timeout()
@@ -639,17 +657,31 @@ async def main():
     webserver_cfg = get_webserver_settings(settings)
 
     # Initialize webserver if enabled and WiFi connected
+    webserver_sessions = None
     if webserver_cfg["enabled"] and wifi_connected:
         try:
-            from lib.webserver import webserver_task
-
-            # Create webserver task directly
+            from lib.webserver import WebServer
+            
+            # Create webserver instance to get session manager
+            webserver = WebServer(cache, apc1_power, wake_up, webserver_cfg)
+            webserver_sessions = webserver.sessions
+            
+            # Inject power states getter
+            def get_power_states():
+                return {
+                    'apc1_awake': apc1_awake,
+                    'display_on': display_on
+                }
+            webserver.get_power_states = get_power_states
+            
             print(f"Webserver configured (port: {webserver_cfg['port']})")
         except Exception as e:
             print(f"⚠ Webserver initialization failed: {e}")
             webserver = None
+            webserver_sessions = None
     else:
         webserver = None
+        webserver_sessions = None
         if webserver_cfg["enabled"]:
             print("⚠ Webserver disabled (no WiFi)")
 
@@ -663,7 +695,7 @@ async def main():
         asyncio.create_task(read_battery_task(cache, batt, BATTERY_INTERVAL)),
         asyncio.create_task(display_task()),
         asyncio.create_task(input_task()),
-        asyncio.create_task(power_mgmt_task()),
+        asyncio.create_task(power_mgmt_task(webserver_sessions)),
         asyncio.create_task(screen_update_task()),
     ]
 
@@ -704,11 +736,17 @@ async def main():
     elif blynk_publisher and not blynk_publisher.enabled:
         print("  ⚠ Blynk/MQTT tasks skipped (publisher disabled)")
 
-    # Add webserver task if enabled
-    if webserver_cfg["enabled"] and wifi_connected:
+    # Add webserver task if webserver was created
+    if webserver:
         try:
-            # Use the webserver_task function from lib.webserver
-            tasks.append(asyncio.create_task(webserver_task(cache, apc1_power, wake_up, webserver_cfg)))
+            # Start the webserver
+            async def webserver_runner():
+                await webserver.start()
+                # Keep running
+                while webserver.running:
+                    await asyncio.sleep(1)
+            
+            tasks.append(asyncio.create_task(webserver_runner()))
             print("  Webserver task added")
         except Exception as e:
             print(f"⚠ Webserver task startup error: {e}")

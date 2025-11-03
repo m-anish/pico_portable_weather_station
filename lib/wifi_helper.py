@@ -108,7 +108,7 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
                 oled.text("WiFi OK!", 0, 0)
                 oled.text(ip, 0, 12)
                 oled.show()
-                await asyncio.sleep(1)
+                # Don't sleep here - could be called before event loop starts
             return True
         await asyncio.sleep(0.5)
     
@@ -119,7 +119,7 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
         oled.text("WiFi timeout", 0, 0)
         oled.text("Continuing...", 0, 12)
         oled.show()
-        await asyncio.sleep(1)
+        # Don't sleep here - could be called before event loop starts
     
     wlan.disconnect()
     return False

@@ -11,11 +11,8 @@ try:
 except ImportError:
     import asyncio
 import ujson
-import uos
 import gc
 import time
-import socket
-import machine
 from micropython import const
 
 # Constants for memory efficiency
@@ -23,8 +20,6 @@ MAX_CONNECTIONS = const(2)
 RESPONSE_TIMEOUT = const(30)
 CHUNK_SIZE = const(512)
 SESSION_TIMEOUT = const(300)  # 5 minutes
-HTTP_LINE_END = const(b"\r\n")
-HTTP_HEADERS_END = const(b"\r\n\r\n")
 
 
 class WebSessionManager:
@@ -50,7 +45,6 @@ class WebSessionManager:
             self.active_sessions[client_ip] = time.time()
             
             # Trigger system wake-up for web activity
-            # This will be injected during initialization
             if hasattr(self, 'wake_callback') and self.wake_callback:
                 self.wake_callback("web")
                 
@@ -129,9 +123,8 @@ class WebServer:
         # Configuration with defaults
         self.port = self.config.get('port', 80)
         self.session_timeout = self.config.get('session_timeout_s', SESSION_TIMEOUT)
-        self.refresh_interval = self.config.get('refresh_interval_s', 10)
+        self.refresh_interval = self.config.get('refresh_interval_s', 20)
         self.max_connections = self.config.get('max_connections', MAX_CONNECTIONS)
-        self.response_timeout = self.config.get('response_timeout_s', RESPONSE_TIMEOUT)
         self.chunk_size = self.config.get('chunk_size', CHUNK_SIZE)
         
         # Session management
@@ -140,13 +133,16 @@ class WebServer:
             self.sessions.wake_callback = wake_callback
         
         # Server state
-        self.server_socket = None
+        self.server = None
         self.running = False
         self.active_connections = 0
         
         # Cache HTML template to avoid rebuilding
         self._html_template = None
         self._css_styles = None
+        
+        # Power states getter (to be injected)
+        self.get_power_states = None
         
         print(f"WebServer initialized (port: {self.port}, max_connections: {self.max_connections})")
     
@@ -261,14 +257,45 @@ class WebServer:
     <script>
         let lastDataTime = 0;
         
-        // Format timestamp for display
-        function formatTime(timestamp) {{
+        function formatTimeAgo(timestamp) {{
             if (!timestamp) return '--';
-            const date = new Date(timestamp * 1000);
-            return date.toLocaleTimeString();
+            
+            const now = Math.floor(Date.now() / 1000);
+            const secondsAgo = now - timestamp;
+            
+            // Handle future timestamps (clock skew)
+            if (secondsAgo < 0) return 'just now';
+            
+            // Less than 1 minute
+            if (secondsAgo < 60) {{
+                return secondsAgo === 1 ? '1 second ago' : `${{secondsAgo}} seconds ago`;
+            }}
+            
+            // Less than 1 hour (show minutes)
+            if (secondsAgo < 3600) {{
+                const minutes = Math.floor(secondsAgo / 60);
+                return minutes === 1 ? '1 minute ago' : `${{minutes}} minutes ago`;
+            }}
+            
+            // Less than 1 day (show hours and minutes)
+            if (secondsAgo < 86400) {{
+                const hours = Math.floor(secondsAgo / 3600);
+                const minutes = Math.floor((secondsAgo % 3600) / 60);
+                if (minutes === 0) {{
+                    return hours === 1 ? '1 hour ago' : `${{hours}} hours ago`;
+                }}
+                return `${{hours}}hr${{minutes}}min ago`;
+            }}
+            
+            // 1 day or more (show days)
+            const days = Math.floor(secondsAgo / 86400);
+            const hours = Math.floor((secondsAgo % 86400) / 3600);
+            if (hours === 0) {{
+                return days === 1 ? '1 day ago' : `${{days}} days ago`;
+            }}
+            return `${{days}}d${{hours}}h ago`;
         }}
         
-        // Format data age with color coding
         function formatAge(timestamp) {{
             if (!timestamp) return 'class="old"';
             const age = Math.floor(Date.now() / 1000) - timestamp;
@@ -277,52 +304,44 @@ class WebServer:
             return 'class="old"';
         }}
         
-        // Update sensor display
         function updateSensorDisplay(data) {{
             try {{
-                // Temperature & Humidity
                 document.getElementById('temperature').innerHTML = 
                     data.temperature ? `${{data.temperature.toFixed(1)}}°C` : '--°C';
                 document.getElementById('humidity').innerHTML = 
                     data.humidity ? `${{data.humidity.toFixed(1)}}%` : '--%';
                 
-                // Particulate Matter
                 document.getElementById('pm25').innerHTML = 
                     data.pm25 ? `${{data.pm25.toFixed(0)}} µg/m³` : '-- µg/m³';
                 document.getElementById('pm10').innerHTML = 
                     data.pm10 ? `${{data.pm10.toFixed(0)}} µg/m³` : '-- µg/m³';
                 
-                // Gases
                 document.getElementById('tvoc').innerHTML = 
                     data.tvoc ? `${{data.tvoc.toFixed(0)}} ppb` : '-- ppb';
                 document.getElementById('eco2').innerHTML = 
                     data.eco2 ? `${{data.eco2.toFixed(0)}} ppm` : '-- ppm';
                 
-                // AQI
                 document.getElementById('aqi').innerHTML = 
                     data.aqi_pm25 ? Math.floor(data.aqi_pm25) : '--';
                 
-                // Battery
                 document.getElementById('battery').innerHTML = 
                     data.battery_voltage ? `${{data.battery_voltage.toFixed(2)}}V (${{data.battery_percent.toFixed(0)}}%)` : '--V (--%)';
                 
-                // Update timestamps
                 const tempAge = formatAge(data.temp_timestamp);
-                document.getElementById('temp-time').innerHTML = `<span ${{tempAge}}>Last: ${{formatTime(data.temp_timestamp)}}</span>`;
-                document.getElementById('humid-time').innerHTML = `<span ${{tempAge}}>Last: ${{formatTime(data.temp_timestamp)}}</span>`;
+                document.getElementById('temp-time').innerHTML = `<span ${{tempAge}}>${{formatTimeAgo(data.temp_timestamp)}}</span>`;
+                document.getElementById('humid-time').innerHTML = `<span ${{tempAge}}>${{formatTimeAgo(data.temp_timestamp)}}</span>`;
                 
                 const pmAge = formatAge(data.pm_timestamp);
-                document.getElementById('pm25-time').innerHTML = `<span ${{pmAge}}>Last: ${{formatTime(data.pm_timestamp)}}</span>`;
-                document.getElementById('pm10-time').innerHTML = `<span ${{pmAge}}>Last: ${{formatTime(data.pm_timestamp)}}</span>`;
-                document.getElementById('tvoc-time').innerHTML = `<span ${{pmAge}}>Last: ${{formatTime(data.pm_timestamp)}}</span>`;
-                document.getElementById('eco2-time').innerHTML = `<span ${{pmAge}}>Last: ${{formatTime(data.pm_timestamp)}}</span>`;
-                document.getElementById('aqi-time').innerHTML = `<span ${{pmAge}}>Last: ${{formatTime(data.pm_timestamp)}}</span>`;
+                document.getElementById('pm25-time').innerHTML = `<span ${{pmAge}}>${{formatTimeAgo(data.pm_timestamp)}}</span>`;
+                document.getElementById('pm10-time').innerHTML = `<span ${{pmAge}}>${{formatTimeAgo(data.pm_timestamp)}}</span>`;
+                document.getElementById('tvoc-time').innerHTML = `<span ${{pmAge}}>${{formatTimeAgo(data.pm_timestamp)}}</span>`;
+                document.getElementById('eco2-time').innerHTML = `<span ${{pmAge}}>${{formatTimeAgo(data.pm_timestamp)}}</span>`;
+                document.getElementById('aqi-time').innerHTML = `<span ${{pmAge}}>${{formatTimeAgo(data.pm_timestamp)}}</span>`;
                 
                 const battAge = formatAge(data.battery_timestamp);
-                document.getElementById('battery-time').innerHTML = `<span ${{battAge}}>Last: ${{formatTime(data.battery_timestamp)}}</span>`;
+                document.getElementById('battery-time').innerHTML = `<span ${{battAge}}>${{formatTimeAgo(data.battery_timestamp)}}</span>`;
                 
-                // Update last update time
-                document.getElementById('last-update').textContent = `Last update: ${{formatTime(Math.floor(Date.now() / 1000))}}`;
+                document.getElementById('last-update').textContent = `Updated ${{formatTimeAgo(Math.floor(Date.now() / 1000))}}`;
                 lastDataTime = Date.now();
                 
             }} catch (error) {{
@@ -330,7 +349,6 @@ class WebServer:
             }}
         }}
         
-        // Update system status
         function updateSystemStatus(status) {{
             try {{
                 document.getElementById('apc1-status').textContent = status.apc1_awake ? 'Awake' : 'Sleeping';
@@ -344,7 +362,6 @@ class WebServer:
             }}
         }}
         
-        // Wake APC1 sensor
         function wakeAPC1() {{
             const button = document.getElementById('wake-apc1');
             button.disabled = true;
@@ -377,7 +394,6 @@ class WebServer:
                 }});
         }}
         
-        // Fetch sensor data
         function fetchData() {{
             fetch('/api/data')
                 .then(response => response.json())
@@ -388,7 +404,6 @@ class WebServer:
                 }});
         }}
         
-        // Fetch system status
         function fetchStatus() {{
             fetch('/api/status')
                 .then(response => response.json())
@@ -402,25 +417,21 @@ class WebServer:
                 }});
         }}
         
-        // Send heartbeat
         function sendHeartbeat() {{
             fetch('/api/heartbeat')
                 .then(response => response.json())
                 .catch(error => console.error('Heartbeat error:', error));
         }}
         
-        // Initial load
         function init() {{
             fetchData();
             fetchStatus();
             
-            // Set up periodic updates
             setInterval(fetchData, {refresh_interval * 1000});
             setInterval(fetchStatus, {refresh_interval * 1000});
-            setInterval(sendHeartbeat, 30000); // Heartbeat every 30s
+            setInterval(sendHeartbeat, 30000);
         }}
         
-        // Start when page loads
         if (document.readyState === 'loading') {{
             document.addEventListener('DOMContentLoaded', init);
         }} else {{
@@ -437,217 +448,40 @@ class WebServer:
         return self._html_template
     
     def _get_css_styles(self):
-        """Generate CSS styles for responsive design.
-        
-        Returns:
-            str: CSS styles
-        """
+        """Generate CSS styles for responsive design."""
         if self._css_styles is None:
-            try:
-                self._css_styles = """
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.6;
-    color: #333;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-}
-
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
-
-header {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 15px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-h1 {
-    color: #2c3e50;
-    margin-bottom: 10px;
-    font-size: 2.5em;
-}
-
-.status-bar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.9em;
-    color: #666;
-}
-
-.sensor-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
-    margin-bottom: 30px;
-}
-
-.sensor-card {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 15px;
-    padding: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: transform 0.2s ease;
-}
-
-.sensor-card:hover {
-    transform: translateY(-2px);
-}
-
-.sensor-card h3 {
-    color: #2c3e50;
-    margin-bottom: 10px;
-    font-size: 1.2em;
-}
-
-.value {
-    font-size: 2em;
-    font-weight: bold;
-    color: #3498db;
-    margin-bottom: 5px;
-}
-
-.timestamp {
-    font-size: 0.8em;
-    color: #666;
-}
-
-.timestamp .fresh {
-    color: #27ae60;
-}
-
-.timestamp .stale {
-    color: #f39c12;
-}
-
-.timestamp .old {
-    color: #e74c3c;
-}
-
-.control-panel {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 15px;
-    padding: 20px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.control-panel h2 {
-    color: #2c3e50;
-    margin-bottom: 20px;
-}
-
-.control-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px;
-}
-
-.control-item {
-    background: #f8f9fa;
-    border-radius: 10px;
-    padding: 15px;
-}
-
-.control-item h3 {
-    color: #2c3e50;
-    margin-bottom: 10px;
-}
-
-.status {
-    font-size: 1.1em;
-    font-weight: bold;
-    margin-bottom: 10px;
-}
-
-.info {
-    font-size: 0.9em;
-    color: #666;
-    white-space: pre-line;
-}
-
-button {
-    background: #3498db;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 1em;
-    transition: background 0.2s ease;
-}
-
-button:hover:not(:disabled) {
-    background: #2980b9;
-}
-
-button:disabled {
-    background: #95a5a6;
-    cursor: not-allowed;
-}
-
-footer {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 15px;
-    padding: 15px;
-    margin-top: 20px;
-    text-align: center;
-    color: #666;
-    font-size: 0.9em;
-}
-
-#debug-info {
-    font-family: monospace;
-    font-size: 0.8em;
-    margin-top: 10px;
-    color: #999;
-}
-
-@media (max-width: 768px) {
-    .container {
-        padding: 10px;
-    }
-    
-    h1 {
-        font-size: 2em;
-    }
-    
-    .sensor-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .control-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .value {
-        font-size: 1.5em;
-    }
-}
-"""
-            except Exception as e:
-                print(f"CSS generation error: {e}")
-                self._css_styles = "body{font-family:sans-serif;margin:20px;}"
+            self._css_styles = """* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+header { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+h1 { color: #2c3e50; margin-bottom: 10px; font-size: 2.5em; }
+.status-bar { display: flex; justify-content: space-between; align-items: center; font-size: 0.9em; color: #666; }
+.sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px; }
+.sensor-card { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); transition: transform 0.2s ease; }
+.sensor-card:hover { transform: translateY(-2px); }
+.sensor-card h3 { color: #2c3e50; margin-bottom: 10px; font-size: 1.2em; }
+.value { font-size: 2em; font-weight: bold; color: #3498db; margin-bottom: 5px; }
+.timestamp { font-size: 0.8em; color: #666; }
+.timestamp .fresh { color: #27ae60; }
+.timestamp .stale { color: #f39c12; }
+.timestamp .old { color: #e74c3c; }
+.control-panel { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 20px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+.control-panel h2 { color: #2c3e50; margin-bottom: 20px; }
+.control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.control-item { background: #f8f9fa; border-radius: 10px; padding: 15px; }
+.control-item h3 { color: #2c3e50; margin-bottom: 10px; }
+.status { font-size: 1.1em; font-weight: bold; margin-bottom: 10px; }
+.info { font-size: 0.9em; color: #666; white-space: pre-line; }
+button { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 1em; transition: background 0.2s ease; }
+button:hover:not(:disabled) { background: #2980b9; }
+button:disabled { background: #95a5a6; cursor: not-allowed; }
+footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15px; margin-top: 20px; text-align: center; color: #666; font-size: 0.9em; }
+@media (max-width: 768px) { .container { padding: 10px; } h1 { font-size: 2em; } .sensor-grid { grid-template-columns: 1fr; } .control-grid { grid-template-columns: 1fr; } .value { font-size: 1.5em; } }"""
         
         return self._css_styles
     
     def _get_sensor_data(self):
-        """Get all sensor data from cache.
-        
-        Returns:
-            dict: All sensor readings with timestamps
-        """
+        """Get all sensor data from cache."""
         try:
             data = {}
             
@@ -683,47 +517,45 @@ footer {
             return data
             
         except Exception as e:
-            print(f"Sensor data retrieval error: {e}")
+            print(f"Sensor data error: {e}")
             return {}
     
     def _get_system_status(self):
-        """Get system status information.
-        
-        Returns:
-            dict: System status including power states
-        """
+        """Get system status information."""
         try:
             status = {}
             
-            # Power states (will be injected during initialization)
-            if hasattr(self, 'get_power_states'):
+            # Power states (injected during initialization)
+            if self.get_power_states:
                 status.update(self.get_power_states())
             
             # WiFi status
             try:
                 import wifi_helper
                 status['wifi_connected'] = wifi_helper.is_connected()
-                status['ip_address'] = wifi_helper.get_ip_address() if status['wifi_connected'] else None
-            except Exception as e:
-                print(f"WiFi status error: {e}")
+                if status['wifi_connected']:
+                    import network
+                    sta = network.WLAN(network.STA_IF)
+                    status['ip_address'] = sta.ifconfig()[0] if sta.active() else None
+                else:
+                    status['ip_address'] = None
+            except Exception:
                 status['wifi_connected'] = False
                 status['ip_address'] = None
             
             # Memory info
             try:
                 gc.collect()
-                status['free_memory'] = gc.mem_free() // 1024  # KB
-                status['used_memory'] = gc.mem_alloc() // 1024  # KB
-            except Exception as e:
-                print(f"Memory status error: {e}")
+                status['free_memory'] = gc.mem_free() // 1024
+                status['used_memory'] = gc.mem_alloc() // 1024
+            except Exception:
                 status['free_memory'] = None
                 status['used_memory'] = None
             
             # Uptime
             try:
-                status['uptime'] = time.time() - machine.reset_cause() if hasattr(machine, 'reset_cause') else 0
-            except Exception as e:
-                print(f"Uptime error: {e}")
+                status['uptime'] = int(time.time())
+            except Exception:
                 status['uptime'] = None
             
             # Web sessions
@@ -735,74 +567,53 @@ footer {
             print(f"System status error: {e}")
             return {}
     
-    async def _send_chunked_response(self, writer, status_code, headers, content):
-        """Send HTTP response with chunked encoding.
-        
-        Args:
-            writer: Socket writer
-            status_code: HTTP status code
-            headers: Dict of HTTP headers
-            content: Response content (string or bytes)
-        """
+    async def _send_response(self, writer, status_code, headers, content):
+        """Send HTTP response with chunked encoding."""
         try:
-            # Send status line
-            status_line = f"HTTP/1.1 {status_code} {self._get_status_text(status_code)}\r\n"
-            await writer.awrite(status_line.encode())
+            # Status line
+            status_text = {
+                200: "OK", 201: "Created", 400: "Bad Request",
+                404: "Not Found", 500: "Internal Server Error"
+            }.get(status_code, "Unknown")
             
-            # Send headers
+            status_line = f"HTTP/1.1 {status_code} {status_text}\r\n"
+            writer.write(status_line.encode())
+            
+            # Headers with chunked encoding
+            headers['Transfer-Encoding'] = 'chunked'
             for header, value in headers.items():
-                header_line = f"{header}: {value}\r\n"
-                await writer.awrite(header_line.encode())
+                writer.write(f"{header}: {value}\r\n".encode())
             
-            # End headers
-            await writer.awrite(b"\r\n")
+            writer.write(b"\r\n")
             
-            # Send content in chunks
+            # Convert content to bytes
             if isinstance(content, str):
                 content = content.encode()
             
+            # Send chunks
             for i in range(0, len(content), self.chunk_size):
                 chunk = content[i:i + self.chunk_size]
-                chunk_size_hex = f"{len(chunk):x}\r\n"
-                await writer.awrite(chunk_size_hex.encode())
-                await writer.awrite(chunk)
-                await writer.awrite(b"\r\n")
+                writer.write(f"{len(chunk):x}\r\n".encode())
+                writer.write(chunk)
+                writer.write(b"\r\n")
+                await writer.drain()
             
-            # End chunks
-            await writer.awrite(b"0\r\n\r\n")
+            # Final chunk
+            writer.write(b"0\r\n\r\n")
+            await writer.drain()
             
         except Exception as e:
-            print(f"Chunked response error: {e}")
-            raise
+            print(f"Send response error: {e}")
     
-    def _get_status_text(self, status_code):
-        """Get HTTP status text for status code.
-        
-        Args:
-            status_code: HTTP status code
-            
-        Returns:
-            str: Status text
-        """
-        status_texts = {
-            200: "OK",
-            201: "Created",
-            400: "Bad Request",
-            404: "Not Found",
-            500: "Internal Server Error",
-            503: "Service Unavailable"
-        }
-        return status_texts.get(status_code, "Unknown")
-    
-    async def _handle_request(self, reader, writer, client_ip):
-        """Handle individual HTTP request.
-        
-        Args:
-            reader: Socket reader
-            writer: Socket writer
-            client_ip: Client IP address
-        """
+    async def _handle_request(self, reader, writer):
+        """Handle individual HTTP request."""
+        client_ip = "unknown"
         try:
+            # Get client IP
+            peername = writer.get_extra_info('peername')
+            if peername:
+                client_ip = peername[0]
+            
             # Register session access
             self.sessions.register_access(client_ip)
             
@@ -818,24 +629,18 @@ footer {
             # Parse request
             parts = request_line.split(' ')
             if len(parts) < 2:
-                await self._send_error_response(writer, 400, "Bad Request")
+                await self._send_error(writer, 400, "Bad Request")
                 return
             
             method, path = parts[0], parts[1]
             
-            # Read headers
-            headers = {}
+            # Read headers (skip for efficiency)
             while True:
                 header_line = await reader.readline()
                 if not header_line or header_line == b"\r\n":
                     break
-                
-                header_line = header_line.decode().strip()
-                if ':' in header_line:
-                    key, value = header_line.split(':', 1)
-                    headers[key.strip().lower()] = value.strip()
             
-            # Handle different paths
+            # Route request
             if path == '/' or path == '/index.html':
                 await self._handle_main_page(writer)
             elif path == '/api/data':
@@ -847,93 +652,61 @@ footer {
             elif path == '/api/wake':
                 await self._handle_api_wake(writer)
             else:
-                await self._send_error_response(writer, 404, "Not Found")
+                await self._send_error(writer, 404, "Not Found")
                 
-        except asyncio.TimeoutError:
-            print(f"Request timeout from {client_ip}")
         except Exception as e:
-            print(f"Request handling error from {client_ip}: {e}")
-            try:
-                await self._send_error_response(writer, 500, "Internal Server Error")
-            except Exception:
-                pass  # Error sending error response
+            print(f"Request error from {client_ip}: {e}")
         finally:
             try:
-                await writer.aclose()
+                await writer.wait_closed()
             except Exception:
                 pass
             self.active_connections -= 1
     
     async def _handle_main_page(self, writer):
-        """Handle main page request.
-        
-        Args:
-            writer: Socket writer
-        """
+        """Handle main page request."""
         try:
             html_content = self._get_html_template()
             headers = {
                 'Content-Type': 'text/html; charset=utf-8',
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Transfer-Encoding': 'chunked'
+                'Cache-Control': 'no-cache'
             }
-            await self._send_chunked_response(writer, 200, headers, html_content)
-            
+            await self._send_response(writer, 200, headers, html_content)
         except Exception as e:
             print(f"Main page error: {e}")
-            await self._send_error_response(writer, 500, "Internal Server Error")
+            await self._send_error(writer, 500, "Internal Server Error")
     
     async def _handle_api_data(self, writer):
-        """Handle API data request.
-        
-        Args:
-            writer: Socket writer
-        """
+        """Handle API data request."""
         try:
             data = self._get_sensor_data()
             json_content = ujson.dumps(data)
-            
             headers = {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Transfer-Encoding': 'chunked'
+                'Cache-Control': 'no-cache'
             }
-            await self._send_chunked_response(writer, 200, headers, json_content)
-            
+            await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
             print(f"API data error: {e}")
-            await self._send_error_response(writer, 500, "Internal Server Error")
+            await self._send_error(writer, 500, "Internal Server Error")
     
     async def _handle_api_status(self, writer):
-        """Handle API status request.
-        
-        Args:
-            writer: Socket writer
-        """
+        """Handle API status request."""
         try:
             status = self._get_system_status()
             json_content = ujson.dumps(status)
-            
             headers = {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Transfer-Encoding': 'chunked'
+                'Cache-Control': 'no-cache'
             }
-            await self._send_chunked_response(writer, 200, headers, json_content)
-            
+            await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
             print(f"API status error: {e}")
-            await self._send_error_response(writer, 500, "Internal Server Error")
+            await self._send_error(writer, 500, "Internal Server Error")
     
     async def _handle_api_heartbeat(self, writer, client_ip):
-        """Handle heartbeat request.
-        
-        Args:
-            writer: Socket writer
-            client_ip: Client IP address
-        """
+        """Handle heartbeat request."""
         try:
-            # Register heartbeat
             self.sessions.register_access(client_ip)
             
             response = {
@@ -943,30 +716,21 @@ footer {
             }
             
             json_content = ujson.dumps(response)
-            
             headers = {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Transfer-Encoding': 'chunked'
+                'Cache-Control': 'no-cache'
             }
-            await self._send_chunked_response(writer, 200, headers, json_content)
-            
+            await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
             print(f"Heartbeat error: {e}")
-            await self._send_error_response(writer, 500, "Internal Server Error")
+            await self._send_error(writer, 500, "Internal Server Error")
     
     async def _handle_api_wake(self, writer):
-        """Handle APC1 wake request.
-        
-        Args:
-            writer: Socket writer
-        """
+        """Handle APC1 wake request."""
         try:
             if self.apc1_power:
-                # Wake APC1
                 self.apc1_power.enable()
                 
-                # Trigger system wake-up
                 if self.wake_callback:
                     self.wake_callback("web_wake")
                 
@@ -982,26 +746,17 @@ footer {
                 }
             
             json_content = ujson.dumps(response)
-            
             headers = {
                 'Content-Type': 'application/json',
-                'Cache-Control': 'no-cache',
-                'Transfer-Encoding': 'chunked'
+                'Cache-Control': 'no-cache'
             }
-            await self._send_chunked_response(writer, 200, headers, json_content)
-            
+            await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
             print(f"APC1 wake error: {e}")
-            await self._send_error_response(writer, 500, "Internal Server Error")
+            await self._send_error(writer, 500, "Internal Server Error")
     
-    async def _send_error_response(self, writer, status_code, message):
-        """Send error response.
-        
-        Args:
-            writer: Socket writer
-            status_code: HTTP status code
-            message: Error message
-        """
+    async def _send_error(self, writer, status_code, message):
+        """Send error response."""
         try:
             error_html = f"""<!DOCTYPE html>
 <html>
@@ -1014,100 +769,41 @@ footer {
 </body>
 </html>"""
             
-            headers = {
-                'Content-Type': 'text/html',
-                'Transfer-Encoding': 'chunked'
-            }
-            await self._send_chunked_response(writer, status_code, headers, error_html)
-            
+            headers = {'Content-Type': 'text/html'}
+            await self._send_response(writer, status_code, headers, error_html)
         except Exception as e:
             print(f"Error response failed: {e}")
     
-    async def _handle_client(self, reader, writer):
-        """Handle client connection with timeout.
-        
-        Args:
-            reader: Socket reader
-            writer: Socket writer
-        """
+    async def _client_handler(self, reader, writer):
+        """Handle client connection with connection tracking."""
+        self.active_connections += 1
         try:
-            # Get client IP
-            client_info = writer.get_extra_info('peername')
-            client_ip = client_info[0] if client_info else 'unknown'
-            
-            # Set timeout
-            reader.settimeout(self.response_timeout)
-            
-            # Handle request
-            await self._handle_request(reader, writer, client_ip)
-            
+            await asyncio.wait_for(
+                self._handle_request(reader, writer),
+                timeout=RESPONSE_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            print("Client timeout")
         except Exception as e:
-            print(f"Client handling error: {e}")
+            print(f"Client handler error: {e}")
         finally:
             self.active_connections -= 1
             try:
-                await writer.aclose()
+                writer.close()
+                await writer.wait_closed()
             except Exception:
                 pass
-    
-    async def _server_task(self):
-        """Main server task that accepts connections."""
-        try:
-            print(f"WebServer listening on port {self.port}")
-            
-            while self.running:
-                try:
-                    # Check connection limit
-                    if self.active_connections >= self.max_connections:
-                        await asyncio.sleep(0.1)
-                        continue
-                    
-                    # Accept connection with timeout
-                    try:
-                        reader, writer = await asyncio.wait_for(
-                            self.server_socket.accept(),
-                            timeout=1.0
-                        )
-                    except asyncio.TimeoutError:
-                        continue
-                    
-                    self.active_connections += 1
-                    
-                    # Handle client in background
-                    asyncio.create_task(self._handle_client(reader, writer))
-                    
-                except OSError as e:
-                    if e.errno == 11:  # EAGAIN - no connections
-                        await asyncio.sleep(0.1)
-                    else:
-                        print(f"Server accept error: {e}")
-                        await asyncio.sleep(1)
-                except Exception as e:
-                    print(f"Server task error: {e}")
-                    await asyncio.sleep(1)
-                    
-        except Exception as e:
-            print(f"Fatal server error: {e}")
-        finally:
-            self.running = False
     
     async def start(self):
         """Start the webserver."""
         try:
-            # Create server socket
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_socket.bind(('0.0.0.0', self.port))
-            self.server_socket.listen(5)
-            self.server_socket.setblocking(False)
-            
             self.running = True
-            
-            # Start server task
-            asyncio.create_task(self._server_task())
-            
-            print(f"WebServer started successfully on port {self.port}")
-            
+            self.server = await asyncio.start_server(
+                self._client_handler,
+                '0.0.0.0',
+                self.port
+            )
+            print(f"WebServer started on port {self.port}")
         except Exception as e:
             print(f"WebServer start error: {e}")
             self.running = False
@@ -1117,12 +813,10 @@ footer {
         """Stop the webserver."""
         try:
             self.running = False
-            
-            if self.server_socket:
-                self.server_socket.close()
-            
+            if self.server:
+                self.server.close()
+                await self.server.wait_closed()
             print("WebServer stopped")
-            
         except Exception as e:
             print(f"WebServer stop error: {e}")
 
@@ -1136,21 +830,15 @@ async def webserver_task(sensor_cache, apc1_power=None, wake_callback=None, conf
         apc1_power: APC1Power instance
         wake_callback: Function to call on web activity
         config: Webserver configuration
+        
+    Returns:
+        WebSessionManager: Session manager for web presence detection
     """
     webserver = None
     
     try:
         # Create webserver instance
         webserver = WebServer(sensor_cache, apc1_power, wake_callback, config)
-        
-        # Inject power state getter if available
-        if wake_callback and hasattr(wake_callback, '__self__'):
-            # Try to get power states from the main module
-            try:
-                # This will be injected during initialization
-                pass
-            except Exception:
-                pass
         
         # Start webserver
         await webserver.start()
@@ -1164,3 +852,6 @@ async def webserver_task(sensor_cache, apc1_power=None, wake_callback=None, conf
     finally:
         if webserver:
             await webserver.stop()
+    
+    # Return session manager for web presence detection
+    return webserver.sessions if webserver else None

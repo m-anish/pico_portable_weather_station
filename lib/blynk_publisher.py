@@ -22,13 +22,13 @@ class BlynkPublisher:
     - Connection state tracking
     """
     
-    def __init__(self, sensor_cache, blynk_mqtt, update_interval_s=30):
+    def __init__(self, sensor_cache, blynk_mqtt, update_interval_s=60):
         """Initialize Blynk publisher.
         
         Args:
             sensor_cache: SensorCache instance to read from
             blynk_mqtt: blynk_mqtt module instance
-            update_interval_s: How often to publish data (default: 30s)
+            update_interval_s: How often to publish data (default: 60s)
         """
         self.cache = sensor_cache
         self.mqtt = blynk_mqtt.mqtt

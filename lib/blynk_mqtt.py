@@ -117,6 +117,9 @@ async def _mqtt_connect():
 
 async def task():
     connected = False
+    retry_delay = 5  # Start with 5 seconds
+    max_retry_delay = 120  # Cap at 2 minutes
+    
     while True:
         await asyncio.sleep_ms(10)
         if not connected:
@@ -133,10 +136,13 @@ async def task():
             try:
                 await _mqtt_connect()
                 connected = True
+                retry_delay = 5  # Reset retry delay on successful connection
             except Exception as e:
                 if isinstance(e, OSError):
-                    print("Connection failed:", e)
-                    await asyncio.sleep(5)
+                    print(f"Connection failed: {e} (retry in {retry_delay}s)")
+                    await asyncio.sleep(retry_delay)
+                    # Exponential backoff: 5s → 15s → 30s → 60s → 120s
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
                 elif isinstance(e, AttributeError):
                     pass  # This happens during reconnection
                 elif isinstance(e, MQTTException) and (e.value == 4 or e.value == 5):
@@ -144,7 +150,8 @@ async def task():
                     await asyncio.sleep(15 * 60)
                 else:
                     sys.print_exception(e)
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
         else:
             try:
                 mqtt.check_msg()
