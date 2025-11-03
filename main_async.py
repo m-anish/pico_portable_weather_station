@@ -232,8 +232,11 @@ async def display_task():
     from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation
     from config import load_settings, get_operation_mode
     
-    # Initial draw
-    screen_mgr.draw_screen(cache, oled)
+    # Wait a moment for initialization to complete before first draw
+    await asyncio.sleep_ms(100)
+    
+    # Force initial draw
+    screen_mgr.needs_redraw = True
     
     while True:
         try:
