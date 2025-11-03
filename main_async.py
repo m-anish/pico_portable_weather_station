@@ -21,7 +21,7 @@ def log_memory(label):
     used = gc.mem_alloc() / 1024
     print(f"[{label}] MEM: {free:.1f}KB free, {used:.1f}KB used")
 
-from machine import I2C, Pin, WDT
+from machine import I2C, Pin
 from ssd1306 import SSD1306_I2C
 from rotary_irq_rp2 import RotaryIRQ
 from apc1 import APC1
@@ -50,7 +50,6 @@ from async_tasks import (
     read_shtc3_task,
     read_apc1_task,
     read_battery_task,
-    watchdog_task,
 )
 
 # --- DEBUG Failsafe check (encoder button at startup) ---
@@ -119,9 +118,6 @@ try:
     apc1 = APC1(i2c, apc1_addr) if has_apc1 else None
     sht = SHTC3(i2c) if has_shtc3 else None
     batt = Battery(adc_pin=26, divider_ratio=2.0)
-
-    # Initialize watchdog timer for system stability
-    wdt = WDT(timeout=8000)  # 8 second timeout (max for Pico WDT)
 
     # Initialize sensor cache
     cache = SensorCache()
@@ -582,7 +578,6 @@ async def main():
         asyncio.create_task(display_task()),
         asyncio.create_task(input_task()),
         asyncio.create_task(power_mgmt_task()),
-        asyncio.create_task(watchdog_task(wdt, 5)),
         asyncio.create_task(screen_update_task()),
     ]
     
@@ -600,13 +595,16 @@ async def main():
         tasks.append(asyncio.create_task(read_apc1_task(cache, apc1, APC1_INTERVAL)))
         print(f"  Using Mobile mode (APC1 reads every {APC1_INTERVAL}s)")
     
-    # Add NTP periodic sync task if enabled
-    if ntp_sync:
+    # Add NTP periodic sync task if enabled and WiFi connected
+    if ntp_sync and wifi_connected:
         from ntp_helper import ntp_sync_task
         tasks.append(asyncio.create_task(ntp_sync_task(ntp_sync, initial_sync=False)))
+        print("  NTP sync task added")
+    elif ntp_sync and not wifi_connected:
+        print("  ⚠ NTP task skipped (no WiFi)")
     
-    # Add Blynk MQTT task if configured (with robust error handling)
-    if blynk_publisher:
+    # Add Blynk MQTT task ONLY if enabled (WiFi + NTP available)
+    if blynk_publisher and blynk_publisher.enabled:
         try:
             # Start Blynk publisher task
             tasks.append(asyncio.create_task(blynk_publisher.publish_task()))
@@ -614,8 +612,11 @@ async def main():
             # Start Blynk MQTT connection task
             import blynk_mqtt
             tasks.append(asyncio.create_task(blynk_mqtt.task()))
+            print("  Blynk/MQTT tasks added")
         except Exception as e:
             print(f"⚠ Blynk task startup error: {e}")
+    elif blynk_publisher and not blynk_publisher.enabled:
+        print("  ⚠ Blynk/MQTT tasks skipped (publisher disabled)")
     
     # Add memory monitoring task (always runs)
     tasks.append(asyncio.create_task(memory_monitor_task(interval_s=30, threshold_kb=20)))

@@ -294,21 +294,3 @@ async def power_management_task(display, apc1_power, get_idle_time,
         
         # Check power state every 5 seconds
         await asyncio.sleep(5)
-
-
-async def watchdog_task(wdt, interval_s=5):
-    """Background task to feed the watchdog timer.
-    
-    Args:
-        wdt: WDT instance
-        interval_s: Feed interval in seconds
-    """
-    print(f"Watchdog task started (interval: {interval_s}s)")
-    
-    while True:
-        try:
-            wdt.feed()
-        except Exception as e:
-            print(f"Watchdog feed error: {e}")
-        
-        await asyncio.sleep(interval_s)
