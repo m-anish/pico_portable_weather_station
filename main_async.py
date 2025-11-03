@@ -38,6 +38,8 @@ from config import (
     get_ntp_settings,
     get_blynk_settings,
     get_wifi_settings,
+    get_operation_mode,
+    get_station_mode_settings,
 )
 import wifi_helper
 from apc1_power import APC1Power
@@ -96,6 +98,17 @@ try:
     print(f"Display: {DISPLAY_FPS} FPS, Input: {INPUT_POLL_HZ} Hz")
 
     oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
+    
+    # Display splash screen
+    oled.fill(0)
+    # Center text on 128x64 display
+    # "starstucklab.com" = 16 chars * 8px = 128px (fits perfectly)
+    # "PicoWeather" = 11 chars * 8px = 88px, center at (128-88)/2 = 20
+    oled.text("starstucklab.com", 0, 20)
+    oled.text("PicoWeather", 20, 32)
+    oled.show()
+    time.sleep(2)  # Show splash for 2 seconds
+    
     devices = i2c.scan()
     print("I2C scan:", [hex(d) for d in devices])
 
@@ -212,19 +225,37 @@ def wake_up():
 # -------- ASYNC TASKS --------
 
 async def display_task():
-    """Async task to update display from cached sensor data."""
+    """Async task to update display from cached sensor data or menus."""
     print(f"Display task started ({DISPLAY_FPS} FPS)")
     interval_ms = int(1000 / DISPLAY_FPS)
+    
+    from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation
+    from config import load_settings, get_operation_mode
     
     # Initial draw
     screen_mgr.draw_screen(cache, oled)
     
     while True:
         try:
-            # Regular screen refresh based on interval
-            if screen_mgr.should_refresh():
-                screen_mgr.draw_screen(cache, oled)
-                screen_mgr.mark_refreshed()
+            # Check if we're in a submenu
+            if screen_mgr.in_submenu:
+                # Draw appropriate submenu
+                if screen_mgr.submenu_type == "settings":
+                    draw_settings_menu(oled, screen_mgr.submenu_index)
+                elif screen_mgr.submenu_type == "mode_select":
+                    # Get current mode for display
+                    current_settings = load_settings()
+                    current_mode = get_operation_mode(current_settings)
+                    draw_mode_selection(oled, screen_mgr.submenu_index, current_mode)
+                elif screen_mgr.submenu_type == "reset_confirm":
+                    # Draw reset confirmation
+                    draw_reset_confirmation(oled, screen_mgr.submenu_index)
+            else:
+                # Check if immediate redraw needed OR regular refresh interval
+                if screen_mgr.needs_redraw or screen_mgr.should_refresh():
+                    screen_mgr.draw_screen(cache, oled)
+                    screen_mgr.mark_refreshed()
+                    screen_mgr.needs_redraw = False  # Clear the flag
         except Exception as e:
             print(f"Display error: {e}")
         
@@ -244,13 +275,23 @@ async def input_task():
             if current_val != last_encoder_val:
                 wake_up()
                 
-                if current_val > last_encoder_val:
-                    screen_mgr.next_screen()
+                # Handle encoder rotation based on current state
+                if screen_mgr.in_submenu:
+                    # Navigate menu items
+                    if current_val > last_encoder_val:
+                        screen_mgr.next_menu_item()
+                    else:
+                        screen_mgr.prev_menu_item()
+                    # Menu will be redrawn by display_task
                 else:
-                    screen_mgr.prev_screen()
+                    # Navigate main screens
+                    if current_val > last_encoder_val:
+                        screen_mgr.next_screen()
+                    else:
+                        screen_mgr.prev_screen()
+                    # Draw screen immediately
+                    screen_mgr.draw_screen(cache, oled)
                 
-                # Draw screen immediately
-                screen_mgr.draw_screen(cache, oled)
                 last_encoder_val = current_val
             
             # Check button
@@ -258,13 +299,42 @@ async def input_task():
                 wake_up()
                 action = screen_mgr.handle_button()
                 
-                if action == "resetwifi":
-                    s = load_settings()
-                    s["wifi"] = {"ssid": "", "password": ""}
-                    with open(SETTINGS_FILE, "w") as f:
-                        json.dump(s, f)
-                    show_big(oled, ["Wi-Fi reset!", "Reboot to setup"], [1.5, 1])
-                    await asyncio.sleep(2)
+                # Handle menu actions
+                if action:
+                    if isinstance(action, dict):
+                        action_type = action.get("type")
+                        
+                        if action_type == "reset_wifi":
+                            # Reset WiFi (write to wifi.json only)
+                            from wifi_config import reset_wifi
+                            if reset_wifi():
+                                show_big(oled, ["Wi-Fi reset!", "Reboot to setup"], [1.5, 1])
+                                await asyncio.sleep(2)
+                                machine.reset()
+                            else:
+                                show_big(oled, ["Reset failed!", "Try again"], [1.5, 1])
+                                await asyncio.sleep(2)
+                        
+                        elif action_type == "set_mode":
+                            # Set mode (write to runtime.json only)
+                            from runtime_state import set_mode
+                            new_mode = action.get("mode", "mobile")
+                            if set_mode(new_mode):
+                                show_big(oled, [f"Mode: {new_mode.upper()}", "Reboot to apply"], [1.5, 1])
+                                print(f"Mode set to: {new_mode}")
+                                await asyncio.sleep(2)
+                                machine.reset()
+                            else:
+                                show_big(oled, ["Save failed!", "Try again"], [1.5, 1])
+                                await asyncio.sleep(2)
+                    
+                    # Legacy string action support
+                    elif action == "resetwifi":
+                        from wifi_config import reset_wifi
+                        if reset_wifi():
+                            show_big(oled, ["Wi-Fi reset!", "Reboot to setup"], [1.5, 1])
+                            await asyncio.sleep(2)
+                            machine.reset()
                 
                 # Debounce delay
                 await asyncio.sleep_ms(200)
@@ -498,10 +568,13 @@ async def main():
             elif not ntp_available:
                 print("⚠ Blynk disabled (waiting for NTP)")
     
+    # Get operation mode and decide which APC1 task to use
+    operation_mode = get_operation_mode(settings)
+    print(f"📍 Operation mode: {operation_mode.upper()}")
+    
     # Create core task list (always runs)
     tasks = [
         asyncio.create_task(read_shtc3_task(cache, sht, SHTC3_INTERVAL)),
-        asyncio.create_task(read_apc1_task(cache, apc1, APC1_INTERVAL)),
         asyncio.create_task(read_battery_task(cache, batt, BATTERY_INTERVAL)),
         asyncio.create_task(display_task()),
         asyncio.create_task(input_task()),
@@ -509,6 +582,20 @@ async def main():
         asyncio.create_task(watchdog_task(wdt, 5)),
         asyncio.create_task(screen_update_task()),
     ]
+    
+    # Add APC1 task based on operation mode
+    if operation_mode == "station":
+        # Station mode: Power cycle APC1 periodically
+        station_settings = get_station_mode_settings(settings)
+        from async_tasks import apc1_station_mode_task
+        tasks.append(asyncio.create_task(
+            apc1_station_mode_task(cache, apc1, apc1_power, station_settings)
+        ))
+        print(f"  Using Station mode (APC1 cycles every {station_settings['cycle_period_s']}s)")
+    else:
+        # Mobile mode: Continuous APC1 reading
+        tasks.append(asyncio.create_task(read_apc1_task(cache, apc1, APC1_INTERVAL)))
+        print(f"  Using Mobile mode (APC1 reads every {APC1_INTERVAL}s)")
     
     # Add NTP periodic sync task if enabled
     if ntp_sync:

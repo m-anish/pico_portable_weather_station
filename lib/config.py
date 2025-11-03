@@ -12,7 +12,7 @@ FONT_SCALES = {
     "pm": [1, 2, 2, 2],
     "aqi": [2, 1],
     "battery": [3, 3],
-    "resetwifi": [1.0, 1.0],
+    "settings": [1.0, 1.0],  # Settings menu (was "resetwifi")
 }
 
 # -------- REFRESH INTERVALS --------
@@ -20,7 +20,7 @@ REFRESH_INTERVALS = {
     "sht": 5,
     "pm": 10,
     "aqi": 10,
-    "battery": 15,
+    "sysinfo": 15,
     "scroll": 0,  # Scroll screen updates via step_scroll_screen()
     "resetwifi": 0,
 }
@@ -179,23 +179,62 @@ def get_ntp_settings(settings: dict):
 
 
 def get_wifi_settings(settings: dict):
-    """Return WiFi connection settings from settings with defaults.
+    """Return WiFi connection settings from wifi.json only.
+    
+    Reads WiFi credentials exclusively from wifi.json. If the file doesn't exist
+    or has empty credentials, returns empty dict which triggers AP mode in boot.py.
+    
+    Args:
+        settings: Settings dictionary (unused, kept for API compatibility)
+    
+    Returns:
+        dict: WiFi configuration with ssid, password, retry_interval_s
+    """
+    from wifi_config import load_wifi_config
+    
+    # Read from wifi.json only - no fallback
+    return load_wifi_config()
+
+
+def get_operation_mode(settings: dict):
+    """Return operation mode from runtime.json with fallback to settings.
+    
+    Reads current mode from runtime.json (set via UI). Falls back to
+    "default_mode" field in settings.json, or hardcoded "mobile" default.
+    
+    Args:
+        settings: Settings dictionary (used for default_mode fallback)
+    
+    Returns:
+        str: Operation mode ("station" or "mobile")
+    """
+    from runtime_state import get_current_mode
+    
+    # Get default from settings.json (or "mobile" if not present)
+    default = (settings or {}).get("default_mode", "mobile")
+    
+    # Get current mode from runtime.json (or use default)
+    return get_current_mode(default)
+
+
+def get_station_mode_settings(settings: dict):
+    """Return station mode APC1 power cycling settings.
     
     settings structure expects:
       {
-        "wifi": {
-          "ssid": <str>,                # WiFi network name
-          "password": <str>,            # WiFi password
-          "retry_interval_s": <int>     # Connection retry interval in seconds
+        "station_mode": {
+          "cycle_period_s": <int>,    # Time between APC1 wake cycles in seconds
+          "warmup_time_s": <int>,     # Time to wait after waking APC1 before reading
+          "read_delay_ms": <int>      # Delay before putting APC1 back to sleep
         }
       }
     
     Returns:
-        dict: WiFi configuration dictionary
+        dict: Station mode configuration dictionary
     """
-    wifi_cfg = (settings or {}).get("wifi", {})
+    station_cfg = (settings or {}).get("station_mode", {})
     return {
-        "ssid": wifi_cfg.get("ssid", ""),
-        "password": wifi_cfg.get("password", ""),
-        "retry_interval_s": wifi_cfg.get("retry_interval_s", 60)
+        "cycle_period_s": station_cfg.get("cycle_period_s", 300),     # 5 minutes
+        "warmup_time_s": station_cfg.get("warmup_time_s", 60),        # 1 minute
+        "read_delay_ms": station_cfg.get("read_delay_ms", 100)        # 100ms
     }

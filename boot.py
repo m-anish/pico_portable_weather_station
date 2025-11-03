@@ -2,25 +2,8 @@ import machine, json, os, time, sys
 from machine import Pin, I2C
 from ssd1306 import SSD1306_I2C
 import wifi_helper
-
-SETTINGS_FILE = "settings.json"
-
-def load_settings():
-    if SETTINGS_FILE in os.listdir():
-        try:
-            with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return {"wifi": {"ssid": "", "password": ""},
-            "i2c": {"sda": 16, "scl": 17}}
-
-def save_wifi_settings(ssid, password):
-    s = load_settings()
-    s["wifi"] = {"ssid": ssid, "password": password}
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(s, f)
-    print("Saved new Wi-Fi credentials")
+from config import load_settings
+from wifi_config import load_wifi_config, update_wifi
 
 # --- Initialize OLED early ---
 settings = load_settings()
@@ -58,21 +41,27 @@ oled.text("Booting...", 0, 0)
 oled.show()
 time.sleep(0.5)
 
-wifi = settings.get("wifi", {})
-ssid = wifi.get("ssid", "")
-password = wifi.get("password", "")
+# Load WiFi config from wifi.json ONLY
+wifi_cfg = load_wifi_config()
+ssid = wifi_cfg.get("ssid", "")
+password = wifi_cfg.get("password", "")
 
-# Only start AP mode if no WiFi credentials configured
-if not ssid or not password:
+# Start AP mode if no WiFi credentials configured
+if not ssid:
     oled.fill(0)
     oled.text("No Wi-Fi set", 0, 0)
     oled.text("AP mode starting", 0, 12)
     oled.show()
 
+    # Use wifi_config.update_wifi to save credentials
+    def save_wifi_callback(ssid, password):
+        update_wifi(ssid, password)
+        print("WiFi credentials saved to wifi.json")
+
     wifi_helper.start_config_ap(
         ap_ssid="PICO_SETUP",
         ap_password="12345678",
-        on_save=save_wifi_settings,
+        on_save=save_wifi_callback,
         oled=oled
     )
     machine.reset()

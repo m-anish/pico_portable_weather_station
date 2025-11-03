@@ -1,0 +1,5 @@
+{
+  "ssid": "YourWiFiSSID",
+  "password": "YourWiFiPassword",
+  "retry_interval_s": 60
+}

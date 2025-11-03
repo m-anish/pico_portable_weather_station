@@ -105,6 +105,73 @@ async def read_battery_task(cache, batt, interval_s=15):
         await asyncio.sleep(interval_s)
 
 
+async def apc1_station_mode_task(cache, apc1, apc1_power, station_settings):
+    """Station mode: Power cycle APC1 sensor periodically to save power.
+    
+    In station mode, the APC1 sensor is normally OFF to conserve power.
+    Periodically (e.g., every 5 minutes), the system:
+    1. Powers on APC1
+    2. Waits for warmup (e.g., 60 seconds)
+    3. Reads sensor data
+    4. Publishes data (if WiFi/MQTT enabled)
+    5. Powers off APC1
+    
+    Args:
+        cache: SensorCache instance
+        apc1: APC1 sensor instance (or None if not available)
+        apc1_power: APC1Power instance for power control
+        station_settings: Dict with cycle_period_s, warmup_time_s, read_delay_ms
+    """
+    if apc1 is None:
+        print("Station mode: APC1 not available, task exiting")
+        return
+    
+    cycle_period = station_settings["cycle_period_s"]
+    warmup_time = station_settings["warmup_time_s"]
+    read_delay_ms = station_settings["read_delay_ms"]
+    
+    print(f"Station mode task started")
+    print(f"  Cycle period: {cycle_period}s ({cycle_period/60:.1f} min)")
+    print(f"  Warmup time: {warmup_time}s")
+    
+    # Initial shutdown after boot
+    apc1_power.disable()
+    print("Station mode: APC1 powered OFF (initial state)")
+    
+    while True:
+        # Sleep for the cycle period
+        await asyncio.sleep(cycle_period)
+        
+        # Wake up APC1
+        apc1_power.enable()
+        print(f"Station mode: APC1 powered ON (warming up for {warmup_time}s)")
+        
+        # Wait for sensor warmup
+        await asyncio.sleep(warmup_time)
+        
+        # Read sensor
+        try:
+            readings = apc1.read_all()
+            cache.update_apc1(readings)
+            
+            if readings:
+                pm25 = readings.get('PM2.5', {}).get('value')
+                pm10 = readings.get('PM10', {}).get('value')
+                print(f"Station mode: Read APC1 - PM2.5={pm25:.0f}, PM10={pm10:.0f} µg/m³")
+            else:
+                print("Station mode: APC1 read returned no data")
+        except Exception as e:
+            print(f"Station mode: APC1 read error: {e}")
+            cache.update_apc1(None)
+        
+        # Small delay before shutting down
+        await asyncio.sleep_ms(read_delay_ms)
+        
+        # Power off APC1
+        apc1_power.disable()
+        print(f"Station mode: APC1 powered OFF (sleeping for {cycle_period}s)")
+
+
 async def display_update_task(cache, oled, screen_manager, fps=20):
     """Background task to update the display from cached sensor data.
     

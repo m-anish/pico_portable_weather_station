@@ -1,4 +1,10 @@
 {
+  "default_mode": "mobile",
+  "station_mode": {
+    "cycle_period_s": 300,
+    "warmup_time_s": 60,
+    "read_delay_ms": 100
+  },
   "i2c": {
     "sda": 16,
     "scl": 17
@@ -20,11 +26,6 @@
   "display": {
     "refresh_fps": 5,
     "input_poll_hz": 20
-  },
-  "wifi": {
-    "ssid": "YourWiFiSSID",
-    "password": "YourWiFiPassword",
-    "retry_interval_s": 60
   },
   "blynk": {
     "enabled": false,

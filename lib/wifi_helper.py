@@ -20,6 +20,17 @@ def is_connected():
     wlan = get_wlan()
     return wlan.active() and wlan.isconnected()
 
+def get_ip_address():
+    """Get the current IP address.
+    
+    Returns:
+        str: IP address if connected, None otherwise
+    """
+    wlan = get_wlan()
+    if wlan.active() and wlan.isconnected():
+        return wlan.ifconfig()[0]
+    return None
+
 def get_status():
     """Get detailed WiFi status.
     
