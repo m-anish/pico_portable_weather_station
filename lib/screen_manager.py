@@ -115,6 +115,13 @@ class ScreenManager:
         self.submenu_index = 0
         print("Entered reset WiFi confirmation")
     
+    def enter_debug_menu(self):
+        """Enter the debug submenu."""
+        self.menu_stack.append(("settings", self.submenu_index))
+        self.submenu_type = "debug"
+        self.submenu_index = 0
+        print("Entered debug menu")
+    
     def exit_submenu(self):
         """Exit current submenu, return to previous level or main screens."""
         if self.menu_stack:
@@ -134,11 +141,13 @@ class ScreenManager:
     def next_menu_item(self):
         """Move to next item in current submenu."""
         if self.submenu_type == "settings":
-            max_items = 3  # Reset WiFi, Select Mode, Back
+            max_items = 4  # Reset WiFi, Select Mode, Debug, Back
         elif self.submenu_type == "mode_select":
             max_items = 3  # Station, Mobile, Back
         elif self.submenu_type == "reset_confirm":
             max_items = 3  # Yes, No, Back
+        elif self.submenu_type == "debug":
+            max_items = 2  # Exit Program, Back
         else:
             return
         
@@ -147,11 +156,13 @@ class ScreenManager:
     def prev_menu_item(self):
         """Move to previous item in current submenu."""
         if self.submenu_type == "settings":
-            max_items = 3
+            max_items = 4  # Reset WiFi, Select Mode, Debug, Back
         elif self.submenu_type == "mode_select":
-            max_items = 3
+            max_items = 3  # Station, Mobile, Back
         elif self.submenu_type == "reset_confirm":
-            max_items = 3
+            max_items = 3  # Yes, No, Back
+        elif self.submenu_type == "debug":
+            max_items = 2  # Exit Program, Back
         else:
             return
         
@@ -176,7 +187,7 @@ class ScreenManager:
         # Handle menu navigation
         if self.in_submenu:
             if self.submenu_type == "settings":
-                # Settings menu: Reset WiFi, Select Mode, Back
+                # Settings menu: Reset WiFi, Select Mode, Debug, Back
                 if self.submenu_index == 0:
                     # Reset WiFi selected - show confirmation
                     self.enter_reset_confirmation()
@@ -186,6 +197,10 @@ class ScreenManager:
                     self.enter_mode_selection()
                     return None
                 elif self.submenu_index == 2:
+                    # Debug selected
+                    self.enter_debug_menu()
+                    return None
+                elif self.submenu_index == 3:
                     # Back selected
                     self.exit_submenu()
                     return None
@@ -215,6 +230,16 @@ class ScreenManager:
                     self.exit_submenu()  # Return to main screens
                     return {"type": "set_mode", "mode": "mobile"}
                 elif self.submenu_index == 2:
+                    # Back selected
+                    self.exit_submenu()  # Return to settings menu
+                    return None
+            
+            elif self.submenu_type == "debug":
+                # Debug menu: Exit Program, Back
+                if self.submenu_index == 0:
+                    # Exit Program selected
+                    return {"type": "exit_program"}
+                elif self.submenu_index == 1:
                     # Back selected
                     self.exit_submenu()  # Return to settings menu
                     return None

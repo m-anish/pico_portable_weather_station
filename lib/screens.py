@@ -143,7 +143,7 @@ def draw_settings_menu(oled, selected_index=0):
         oled: SSD1306 display instance
         selected_index: Currently selected menu item (0-based)
     """
-    options = ["Reset WiFi", "Select Mode", "Back"]
+    options = ["Reset WiFi", "Select Mode", "Debug", "Back"]
     
     oled.fill(0)
     draw_text(oled, "SETTINGS", 0, 0, font="amstrad", align="left")
@@ -203,6 +203,28 @@ def draw_reset_confirmation(oled, selected_index=0):
     # Draw confirmation options with selection indicator
     for i, option in enumerate(options):
         y = 30 + i * 12
+        prefix = "> " if i == selected_index else "  "
+        draw_text(oled, prefix + option, 0, y, font="amstrad", align="left")
+    
+    oled.show()
+
+
+def draw_debug_menu(oled, selected_index=0):
+    """Draw the debug submenu with options.
+    
+    Args:
+        oled: SSD1306 display instance
+        selected_index: Currently selected menu item (0-based)
+    """
+    options = ["Exit Program", "Back"]
+    
+    oled.fill(0)
+    draw_text(oled, "DEBUG", 0, 0, font="amstrad", align="left")
+    oled.hline(0, 10, 128, 1)
+    
+    # Draw menu options with selection indicator
+    for i, option in enumerate(options):
+        y = 15 + i * 12
         prefix = "> " if i == selected_index else "  "
         draw_text(oled, prefix + option, 0, y, font="amstrad", align="left")
     

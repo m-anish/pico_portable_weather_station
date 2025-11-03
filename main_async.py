@@ -225,7 +225,7 @@ async def display_task():
     print(f"Display task started ({DISPLAY_FPS} FPS)")
     interval_ms = int(1000 / DISPLAY_FPS)
     
-    from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation
+    from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation, draw_debug_menu
     from config import load_settings, get_operation_mode
     
     # Wait a moment for initialization to complete before first draw
@@ -249,6 +249,9 @@ async def display_task():
                 elif screen_mgr.submenu_type == "reset_confirm":
                     # Draw reset confirmation
                     draw_reset_confirmation(oled, screen_mgr.submenu_index)
+                elif screen_mgr.submenu_type == "debug":
+                    # Draw debug menu
+                    draw_debug_menu(oled, screen_mgr.submenu_index)
             else:
                 # Check if immediate redraw needed OR regular refresh interval
                 if screen_mgr.needs_redraw or screen_mgr.should_refresh():
@@ -326,6 +329,17 @@ async def input_task():
                             else:
                                 show_big(oled, ["Save failed!", "Try again"], [1.5, 1])
                                 await asyncio.sleep(2)
+                        
+                        elif action_type == "exit_program":
+                            # Exit program gracefully
+                            oled.fill(0)
+                            oled.text("Exiting...", 30, 20)
+                            oled.text("Connect to", 20, 32)
+                            oled.text("Thonny now", 20, 44)
+                            oled.show()
+                            print("DEBUG: Exiting program gracefully")
+                            await asyncio.sleep(1)
+                            sys.exit()
                     
                     # Legacy string action support
                     elif action == "resetwifi":
