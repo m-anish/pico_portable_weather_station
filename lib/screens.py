@@ -171,11 +171,11 @@ def draw_settings_menu(oled, selected_index=0, scroll_offset=0):
     # Show scroll indicators if needed
     if scroll_offset > 0:
         # Can scroll up - show up arrow
-        draw_text(oled, "▲", 120, 12, font="amstrad", align="left")
+        draw_text(oled, "^", 120, 12, font="amstrad", align="left")
     
     if scroll_offset + visible_items < len(options):
         # Can scroll down - show down arrow
-        draw_text(oled, "▼", 120, 52, font="amstrad", align="left")
+        draw_text(oled, "v", 120, 52, font="amstrad", align="left")
     
     # Draw visible menu options with selection indicator
     for i in range(visible_items):

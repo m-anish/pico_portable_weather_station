@@ -32,7 +32,7 @@ def load_runtime_state():
 
 
 def save_runtime_state(state):
-    """Save runtime state to file with formatting.
+    """Save runtime state to file.
     
     Args:
         state: Dictionary with runtime state
@@ -42,7 +42,7 @@ def save_runtime_state(state):
     """
     try:
         with open(RUNTIME_FILE, "w") as f:
-            json.dump(state, f, indent=2)
+            json.dump(state, f)
         return True
     except Exception as e:
         print(f"Failed to save runtime state: {e}")

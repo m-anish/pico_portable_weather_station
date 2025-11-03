@@ -36,7 +36,7 @@ def load_wifi_config():
 
 
 def save_wifi_config(wifi_cfg):
-    """Save WiFi configuration to file with formatting.
+    """Save WiFi configuration to file.
     
     Args:
         wifi_cfg: Dictionary with ssid, password, retry_interval_s
@@ -46,7 +46,7 @@ def save_wifi_config(wifi_cfg):
     """
     try:
         with open(WIFI_FILE, "w") as f:
-            json.dump(wifi_cfg, f, indent=2)
+            json.dump(wifi_cfg, f)
         return True
     except Exception as e:
         print(f"Failed to save WiFi config: {e}")
