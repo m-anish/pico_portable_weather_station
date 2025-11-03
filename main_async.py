@@ -40,6 +40,7 @@ from config import (
     get_wifi_settings,
     get_operation_mode,
     get_station_mode_settings,
+    get_webserver_settings,  # <-- ADDED WEBSERVER IMPORT
 )
 import wifi_helper
 from apc1_power import APC1Power
@@ -95,7 +96,7 @@ try:
     print(f"Display: {DISPLAY_FPS} FPS, Input: {INPUT_POLL_HZ} Hz")
 
     oled = SSD1306_I2C(128, 64, i2c, addr=0x3C)
-    
+
     # Display splash screen
     oled.fill(0)
     # Center text on 128x64 display
@@ -105,7 +106,7 @@ try:
     oled.text("PicoWeather", 20, 32)
     oled.show()
     time.sleep(2)  # Show splash for 2 seconds
-    
+
     devices = i2c.scan()
     print("I2C scan:", [hex(d) for d in devices])
 
@@ -124,7 +125,7 @@ try:
     # Initialize screen manager
     screen_mgr = ScreenManager(cache, FONT_SCALES)
     print(f"Screen manager initialized: {len(screen_mgr.screens)} screens")
-    
+
     # Initialize NTP sync if enabled
     ntp_sync = None
     ntp_cfg = get_ntp_settings(settings)
@@ -136,7 +137,7 @@ try:
             sync_interval_s=ntp_cfg["sync_interval_s"]
         )
         print(f"NTP sync configured (timezone: UTC{ntp_sync._format_offset()})")
-    
+
     # Initialize Blynk publisher if enabled
     blynk_publisher = None
     blynk_cfg = get_blynk_settings(settings)
@@ -144,7 +145,7 @@ try:
         try:
             import blynk_mqtt
             from blynk_publisher import BlynkPublisher
-            
+
             blynk_publisher = BlynkPublisher(
                 sensor_cache=cache,
                 blynk_mqtt=blynk_mqtt,
@@ -194,7 +195,7 @@ def get_idle_time():
     return time.time() - last_activity
 
 
-def wake_up():
+def wake_up(source="physical"):
     """Wake up display and sensors on user activity."""
     global display_on, apc1_awake, last_activity
     last_activity = time.time()
@@ -213,7 +214,7 @@ def wake_up():
         changed = True
 
     if changed:
-        print("Wake-up triggered")
+        print(f"Wake-up triggered by: {source}")  # <-- MODIFIED FOR WEBSERVER
 
 
 # -------- ASYNC TASKS --------
@@ -222,16 +223,16 @@ async def display_task():
     """Async task to update display from cached sensor data or menus."""
     print(f"Display task started ({DISPLAY_FPS} FPS)")
     interval_ms = int(1000 / DISPLAY_FPS)
-    
+
     from screens import draw_settings_menu, draw_mode_selection, draw_reset_confirmation, draw_debug_menu, draw_display_settings
     from config import load_settings, get_operation_mode
-    
+
     # Wait a moment for initialization to complete before first draw
     await asyncio.sleep_ms(100)
-    
+
     # Force initial draw
     screen_mgr.needs_redraw = True
-    
+
     while True:
         try:
             # Check if we're in a submenu
@@ -249,7 +250,7 @@ async def display_task():
                     draw_reset_confirmation(oled, screen_mgr.submenu_index)
                 elif screen_mgr.submenu_type == "display_settings":
                     # Draw display timeout settings with mode
-                    draw_display_settings(oled, screen_mgr.timeout_value, 
+                    draw_display_settings(oled, screen_mgr.timeout_value,
                                         screen_mgr.display_timeout_mode,
                                         screen_mgr.timeout_confirm_index)
                 elif screen_mgr.submenu_type == "debug":
@@ -263,7 +264,7 @@ async def display_task():
                     screen_mgr.needs_redraw = False  # Clear the flag
         except Exception as e:
             print(f"Display error: {e}")
-        
+
         await asyncio.sleep_ms(interval_ms)
 
 
@@ -272,14 +273,14 @@ async def input_task():
     print(f"Input task started ({INPUT_POLL_HZ} Hz)")
     interval_ms = int(1000 / INPUT_POLL_HZ)
     last_encoder_val = rot.value()
-    
+
     while True:
         try:
             # Check encoder
             current_val = rot.value()
             if current_val != last_encoder_val:
-                wake_up()
-                
+                wake_up("physical")  # <-- MODIFIED FOR WEBSERVER
+
                 # Handle encoder rotation based on current state
                 if screen_mgr.in_submenu:
                     # Check if in display settings
@@ -312,19 +313,19 @@ async def input_task():
                         screen_mgr.prev_screen()
                     # Draw screen immediately
                     screen_mgr.draw_screen(cache, oled)
-                
+
                 last_encoder_val = current_val
-            
+
             # Check button
             if not btn.value():  # Active low
-                wake_up()
+                wake_up("physical")  # <-- MODIFIED FOR WEBSERVER
                 action = screen_mgr.handle_button()
-                
+
                 # Handle menu actions
                 if action:
                     if isinstance(action, dict):
                         action_type = action.get("type")
-                        
+
                         if action_type == "reset_wifi":
                             # Reset WiFi (write to wifi.json only)
                             from wifi_config import reset_wifi
@@ -335,7 +336,7 @@ async def input_task():
                             else:
                                 show_big(oled, ["Reset failed!", "Try again"], [1.5, 1])
                                 await asyncio.sleep(2)
-                        
+
                         elif action_type == "set_mode":
                             # Set mode (write to runtime.json only)
                             from runtime_state import set_mode
@@ -348,7 +349,7 @@ async def input_task():
                             else:
                                 show_big(oled, ["Save failed!", "Try again"], [1.5, 1])
                                 await asyncio.sleep(2)
-                        
+
                         elif action_type == "timeout_saved":
                             # Timeout was saved, show confirmation briefly
                             timeout_val = action.get("value", 0)
@@ -358,8 +359,8 @@ async def input_task():
                                 show_big(oled, [f"Timeout: {timeout_val}s"], [1.5])
                             await asyncio.sleep(1)
                             # Reset idle timer to apply new timeout immediately
-                            wake_up()
-                        
+                            wake_up("physical")  # <-- MODIFIED FOR WEBSERVER
+
                         elif action_type == "exit_program":
                             # Exit program gracefully via KeyboardInterrupt
                             oled.fill(0)
@@ -370,7 +371,7 @@ async def input_task():
                             print("DEBUG: Exiting program gracefully")
                             await asyncio.sleep(1)
                             raise KeyboardInterrupt
-                    
+
                     # Legacy string action support
                     elif action == "resetwifi":
                         from wifi_config import reset_wifi
@@ -378,50 +379,64 @@ async def input_task():
                             show_big(oled, ["Wi-Fi reset!", "Reboot to setup"], [1.5, 1])
                             await asyncio.sleep(2)
                             machine.reset()
-                
+
                 # Debounce delay
                 await asyncio.sleep_ms(200)
-        
+
         except Exception as e:
             print(f"Input error: {e}")
-        
+
         await asyncio.sleep_ms(interval_ms)
 
 
 async def power_mgmt_task():
-    """Async task to manage power states based on inactivity."""
+    """Async task to manage power states based on inactivity with web awareness."""
     global display_on, apc1_awake
-    
+
+    # Import webserver module to check for active sessions
+    webserver_sessions = None
+
     # Get initial timeout
     screen_timeout = get_screen_timeout()
     timeout_str = "Never" if screen_timeout == 0 else f"{screen_timeout}s"
     print(f"Power mgmt started (timeout: {timeout_str})")
-    
+
     while True:
         try:
             # Get current timeout (may have changed via settings)
             screen_timeout = get_screen_timeout()
             idle_time = get_idle_time()
-            
-            # Display power management
+
+            # Check for active web sessions (if webserver is running)
+            web_active = False
+            if webserver_sessions:
+                web_active = webserver_sessions.has_active_sessions()
+
+            # Display power management (unchanged)
             if screen_timeout > 0 and display_on and idle_time > screen_timeout:
                 oled.poweroff()
                 display_on = False
                 print("Display off")
-            
-            # APC1 power management (only in mobile mode, never in station mode)
+
+            # APC1 power management (enhanced for web awareness)
             operation_mode = get_operation_mode(settings)
             if operation_mode == "mobile":
-                # In mobile mode, APC1 follows display timeout
-                if screen_timeout > 0 and apc1_awake and idle_time > screen_timeout:
+                # In mobile mode, consider web activity
+                effective_idle = 0 if web_active else idle_time
+
+                if screen_timeout > 0 and apc1_awake and effective_idle > screen_timeout:
                     apc1_power.disable()
                     apc1_awake = False
                     print("APC1 sleep (mobile mode)")
+                elif not apc1_awake and (web_active or effective_idle <= screen_timeout):
+                    apc1_power.enable()
+                    apc1_awake = True
+                    print("APC1 wake (web/mobile activity)")
             # In station mode, APC1 is managed by apc1_station_mode_task
-        
+
         except Exception as e:
             print(f"Power mgmt error: {e}")
-        
+
         # Check power state every 5 seconds
         await asyncio.sleep(5)
 
@@ -429,13 +444,13 @@ async def power_mgmt_task():
 async def screen_update_task():
     """Periodically update available screens as sensors come online."""
     print("Screen update task started")
-    
+
     while True:
         try:
             screen_mgr.update_available_screens()
         except Exception as e:
             print(f"Screen update error: {e}")
-        
+
         # Check every 30 seconds
         await asyncio.sleep(30)
 
@@ -444,26 +459,26 @@ async def screen_update_task():
 
 async def memory_monitor_task(interval_s=30, threshold_kb=20):
     """Monitor and log free memory periodically.
-    
+
     Args:
         interval_s: How often to check memory (seconds)
         threshold_kb: Warn if free memory drops below this (KB)
     """
     print(f"Memory monitor started (check every {interval_s}s, threshold: {threshold_kb}KB)")
-    
+
     while True:
         await asyncio.sleep(interval_s)
-        
+
         try:
             gc.collect()
             free = gc.mem_free()
             used = gc.mem_alloc()
-            
+
             free_kb = free / 1024
             used_kb = used / 1024
-            
+
             print(f"💾 MEM: {free_kb:.1f}KB free / {used_kb:.1f}KB used")
-            
+
             if free_kb < threshold_kb:
                 print(f"⚠ LOW MEMORY! Only {free_kb:.1f}KB free")
                 gc.collect()  # Extra GC on low memory
@@ -473,36 +488,36 @@ async def memory_monitor_task(interval_s=30, threshold_kb=20):
 
 async def wifi_monitor_task(wifi_cfg):
     """Monitor WiFi connection and auto-reconnect if disconnected.
-    
+
     Args:
         wifi_cfg: WiFi configuration dict with ssid, password, retry_interval_s
     """
     global blynk_publisher
-    
+
     retry_interval = wifi_cfg["retry_interval_s"]
     ssid = wifi_cfg["ssid"]
     password = wifi_cfg["password"]
-    
+
     print(f"WiFi monitor started (check every {retry_interval}s)")
-    
+
     while True:
         await asyncio.sleep(retry_interval)
-        
+
         try:
             if not wifi_helper.is_connected():
                 print("⚠ WiFi disconnected - attempting reconnect...")
-                
+
                 # Try to reconnect
                 connected = await wifi_helper.connect_async(ssid, password, timeout_s=15)
-                
+
                 if connected:
                     print("✓ WiFi reconnected!")
-                    
+
                     # Re-enable NTP if configured
                     if ntp_sync and not ntp_sync.is_synced():
                         print("Syncing NTP after WiFi reconnect...")
                         await ntp_sync.sync_time_async()
-                    
+
                     # Re-enable Blynk if configured
                     if blynk_publisher and not blynk_publisher.enabled:
                         print("Re-enabling Blynk after WiFi reconnect...")
@@ -510,31 +525,31 @@ async def wifi_monitor_task(wifi_cfg):
                 else:
                     print("⚠ WiFi reconnect failed - will retry")
             # else: WiFi is connected, all good
-                
+
         except Exception as e:
             print(f"WiFi monitor error: {e}")
 
 
 async def ntp_mqtt_recovery_task():
     """Background task to recover NTP and enable MQTT if they failed initially.
-    
+
     Attempts NTP sync every 5 minutes if not synced.
     Enables Blynk publisher once NTP is available.
     """
     global blynk_publisher
-    
+
     print("NTP/MQTT recovery task started")
-    
+
     while True:
         await asyncio.sleep(300)  # Check every 5 minutes
-        
+
         try:
             # Try to recover NTP if not synced
             if ntp_sync and not ntp_sync.is_synced():
                 print("Attempting NTP recovery...")
                 if await ntp_sync.sync_time_async():
                     print("✓ NTP recovered!")
-                    
+
                     # Enable Blynk if configured and NTP now available
                     if blynk_publisher and not blynk_publisher.enabled:
                         print("Enabling Blynk publisher...")
@@ -545,7 +560,7 @@ async def ntp_mqtt_recovery_task():
 
 async def main():
     """Main async coordinator - starts all tasks.
-    
+
     Features graceful degradation:
     - Continues running even if WiFi fails
     - Continues running even if NTP fails
@@ -553,24 +568,24 @@ async def main():
     - Display always works locally
     """
     global blynk_publisher
-    
+
     print("Starting async tasks...")
     log_memory("Startup")
-    
+
     # Get WiFi configuration
     wifi_cfg = get_wifi_settings(settings)
-    
+
     # Aggressive GC before WiFi connection
     gc.collect()
     log_memory("Before WiFi")
-    
+
     # Connect WiFi at startup (if Blynk or NTP enabled)
     wifi_connected = False
     if blynk_cfg["enabled"] or ntp_cfg["enabled"]:
         print("Connecting to WiFi...")
         try:
             wifi_connected = await wifi_helper.connect_async(
-                wifi_cfg["ssid"], 
+                wifi_cfg["ssid"],
                 wifi_cfg["password"],
                 timeout_s=15,
                 oled=oled
@@ -582,11 +597,11 @@ async def main():
         except Exception as e:
             print(f"⚠ WiFi error: {e}")
             print("⚠ Continuing local-only")
-    
+
     # GC after WiFi
     gc.collect()
     log_memory("After WiFi")
-    
+
     # Try initial NTP sync (only if WiFi connected)
     ntp_available = False
     if ntp_sync and wifi_connected:
@@ -605,10 +620,10 @@ async def main():
         log_memory("After NTP")
     elif ntp_sync and not wifi_connected:
         print("⚠ NTP disabled (no WiFi)")
-    
+
     # GC before MQTT initialization
     gc.collect()
-    
+
     # Enable Blynk publisher (only if WiFi connected and NTP available)
     if blynk_publisher:
         if wifi_connected and ntp_available:
@@ -619,11 +634,29 @@ async def main():
                 print("⚠ Blynk disabled (no WiFi)")
             elif not ntp_available:
                 print("⚠ Blynk disabled (waiting for NTP)")
-    
+
+    # Get webserver configuration
+    webserver_cfg = get_webserver_settings(settings)
+
+    # Initialize webserver if enabled and WiFi connected
+    if webserver_cfg["enabled"] and wifi_connected:
+        try:
+            from lib.webserver import webserver_task
+
+            # Create webserver task directly
+            print(f"Webserver configured (port: {webserver_cfg['port']})")
+        except Exception as e:
+            print(f"⚠ Webserver initialization failed: {e}")
+            webserver = None
+    else:
+        webserver = None
+        if webserver_cfg["enabled"]:
+            print("⚠ Webserver disabled (no WiFi)")
+
     # Get operation mode and decide which APC1 task to use
     operation_mode = get_operation_mode(settings)
     print(f"📍 Operation mode: {operation_mode.upper()}")
-    
+
     # Create core task list (always runs)
     tasks = [
         asyncio.create_task(read_shtc3_task(cache, sht, SHTC3_INTERVAL)),
@@ -633,7 +666,7 @@ async def main():
         asyncio.create_task(power_mgmt_task()),
         asyncio.create_task(screen_update_task()),
     ]
-    
+
     # Add APC1 task based on operation mode
     if operation_mode == "station":
         # Station mode: Power cycle APC1 periodically
@@ -647,7 +680,7 @@ async def main():
         # Mobile mode: Continuous APC1 reading
         tasks.append(asyncio.create_task(read_apc1_task(cache, apc1, APC1_INTERVAL)))
         print(f"  Using Mobile mode (APC1 reads every {APC1_INTERVAL}s)")
-    
+
     # Add NTP periodic sync task if enabled and WiFi connected
     if ntp_sync and wifi_connected:
         from ntp_helper import ntp_sync_task
@@ -655,13 +688,13 @@ async def main():
         print("  NTP sync task added")
     elif ntp_sync and not wifi_connected:
         print("  ⚠ NTP task skipped (no WiFi)")
-    
+
     # Add Blynk MQTT task ONLY if enabled (WiFi + NTP available)
     if blynk_publisher and blynk_publisher.enabled:
         try:
             # Start Blynk publisher task
             tasks.append(asyncio.create_task(blynk_publisher.publish_task()))
-            
+
             # Start Blynk MQTT connection task
             import blynk_mqtt
             tasks.append(asyncio.create_task(blynk_mqtt.task()))
@@ -670,21 +703,30 @@ async def main():
             print(f"⚠ Blynk task startup error: {e}")
     elif blynk_publisher and not blynk_publisher.enabled:
         print("  ⚠ Blynk/MQTT tasks skipped (publisher disabled)")
-    
+
+    # Add webserver task if enabled
+    if webserver_cfg["enabled"] and wifi_connected:
+        try:
+            # Use the webserver_task function from lib.webserver
+            tasks.append(asyncio.create_task(webserver_task(cache, apc1_power, wake_up, webserver_cfg)))
+            print("  Webserver task added")
+        except Exception as e:
+            print(f"⚠ Webserver task startup error: {e}")
+
     # Add memory monitoring task (always runs)
     tasks.append(asyncio.create_task(memory_monitor_task(interval_s=30, threshold_kb=20)))
-    
+
     # Add WiFi monitoring task (if WiFi features enabled)
     if blynk_cfg["enabled"] or ntp_cfg["enabled"]:
         tasks.append(asyncio.create_task(wifi_monitor_task(wifi_cfg)))
-    
+
     # Add NTP/MQTT recovery task if either is enabled
     if ntp_sync or blynk_publisher:
         tasks.append(asyncio.create_task(ntp_mqtt_recovery_task()))
-    
+
     print(f"Started {len(tasks)} async tasks")
     print("=== System Running ===")
-    
+
     # Wait for all tasks (they run forever)
     # Each task has its own error handling - main loop never crashes
     await asyncio.gather(*tasks)

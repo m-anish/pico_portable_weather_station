@@ -1,5 +1,5 @@
 # config.py
-# Centralized configuration and settings helpers for the weather station
+# Centralized configuration and settings helpers for weather station
 
 import json
 import os
@@ -178,7 +178,7 @@ def get_ntp_settings(settings: dict):
 def get_wifi_settings(settings: dict):
     """Return WiFi connection settings from wifi.json only.
     
-    Reads WiFi credentials exclusively from wifi.json. If the file doesn't exist
+    Reads WiFi credentials exclusively from wifi.json. If file doesn't exist
     or has empty credentials, returns empty dict which triggers AP mode in boot.py.
     
     Args:
@@ -234,4 +234,35 @@ def get_station_mode_settings(settings: dict):
         "cycle_period_s": station_cfg.get("cycle_period_s", 300),     # 5 minutes
         "warmup_time_s": station_cfg.get("warmup_time_s", 60),        # 1 minute
         "read_delay_ms": station_cfg.get("read_delay_ms", 100)        # 100ms
+    }
+
+
+def get_webserver_settings(settings: dict):
+    """Return webserver configuration settings.
+    
+    settings structure expects:
+      {
+        "webserver": {
+          "enabled": <bool>,              # Enable/disable webserver
+          "port": <int>,                  # HTTP port (default: 80)
+          "session_timeout_s": <int>,      # Web session timeout in seconds
+          "refresh_interval_s": <int>,     # Auto-refresh interval in seconds
+          "max_connections": <int>,        # Maximum concurrent connections
+          "response_timeout_s": <int>,     # HTTP response timeout in seconds
+          "chunk_size": <int>              # HTTP chunk size for responses
+        }
+      }
+    
+    Returns:
+        dict: Webserver configuration dictionary
+    """
+    webserver_cfg = (settings or {}).get("webserver", {})
+    return {
+        "enabled": webserver_cfg.get("enabled", True),
+        "port": webserver_cfg.get("port", 80),
+        "session_timeout_s": webserver_cfg.get("session_timeout_s", 300),    # 5 minutes
+        "refresh_interval_s": webserver_cfg.get("refresh_interval_s", 10),     # 10 seconds
+        "max_connections": webserver_cfg.get("max_connections", 2),            # 2 connections
+        "response_timeout_s": webserver_cfg.get("response_timeout_s", 30),    # 30 seconds
+        "chunk_size": webserver_cfg.get("chunk_size", 512)                   # 512 bytes
     }
