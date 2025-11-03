@@ -80,3 +80,45 @@ def get_sleep_times(settings: dict):
     display_sleep = power_cfg.get("display_sleep_s", 30)
     apc1_sleep = power_cfg.get("apc1_sleep_s", 300)
     return display_sleep, apc1_sleep
+
+
+def get_sensor_intervals(settings: dict):
+    """Return sensor read intervals from settings with defaults.
+    
+    settings structure expects:
+      {
+        "sensors": {
+          "shtc3_interval_s": <int>,   # SHTC3 read interval in seconds
+          "apc1_interval_s": <int>,    # APC1 read interval in seconds
+          "battery_interval_s": <int>  # Battery read interval in seconds
+        }
+      }
+    
+    Returns:
+        tuple: (shtc3_interval, apc1_interval, battery_interval) in seconds
+    """
+    sensor_cfg = (settings or {}).get("sensors", {})
+    shtc3_interval = sensor_cfg.get("shtc3_interval_s", 5)
+    apc1_interval = sensor_cfg.get("apc1_interval_s", 10)
+    battery_interval = sensor_cfg.get("battery_interval_s", 15)
+    return shtc3_interval, apc1_interval, battery_interval
+
+
+def get_display_settings(settings: dict):
+    """Return display update settings from settings with defaults.
+    
+    settings structure expects:
+      {
+        "display": {
+          "refresh_fps": <int>,    # Display refresh rate in frames per second
+          "input_poll_hz": <int>   # Input polling rate in Hz
+        }
+      }
+    
+    Returns:
+        tuple: (refresh_fps, input_poll_hz)
+    """
+    display_cfg = (settings or {}).get("display", {})
+    refresh_fps = display_cfg.get("refresh_fps", 20)
+    input_poll_hz = display_cfg.get("input_poll_hz", 50)
+    return refresh_fps, input_poll_hz

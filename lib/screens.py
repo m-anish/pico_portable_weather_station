@@ -16,58 +16,68 @@ _scroll_last_update = 0
 _scroll_refresh_interval = 10  # Refresh readings every 10 seconds
 
 
-def available_screens(sht, apc1):
+def available_screens(cache):
+    """Return list of available screens based on cached sensor data.
+    
+    Args:
+        cache: SensorCache instance
+    
+    Returns:
+        list: List of (screen_id, screen_name) tuples
+    """
     screens = []
-    if sht:
+    if cache.has_shtc3_data():
         screens.append(("sht", "Temp & Humidity"))
-    if apc1:
+    if cache.has_apc1_data():
         screens += [("pm", "Particles"), ("aqi", "AQI")]
     screens += [("battery", "Battery"), ("scroll", "Scrolling"),
                 ("resetwifi", "Reset Wi-Fi")]
     return screens
 
 
-def _collect_readings(sht, apc1, batt):
-    """Collect all available sensor readings into a single formatted string for scrolling."""
+def _collect_readings(cache):
+    """Collect all available sensor readings from cache into a single formatted string for scrolling.
+    
+    Args:
+        cache: SensorCache instance
+    
+    Returns:
+        str: Formatted string of all sensor readings
+    """
     readings = []
+    
+    # Get all cached data
+    data = cache.get_all_for_scroll()
 
     # Temperature and Humidity
-    if sht:
-        try:
-            t, h = sht.measure()
-            readings.append(f"Temp: {t:.1f}°C")
-            readings.append(f"Humidity: {h:.1f}%")
-        except Exception:
-            readings.append("Temp: --")
-            readings.append("Humidity: --")
+    t = data.get('temperature')
+    h = data.get('humidity')
+    if t is not None and h is not None:
+        readings.append(f"Temp: {t:.1f}°C")
+        readings.append(f"Humidity: {h:.1f}%")
+    elif cache.has_shtc3_data():
+        readings.append("Temp: --")
+        readings.append("Humidity: --")
 
     # Air quality particles
-    if apc1:
-        try:
-            d = apc1.read_all()
-            pm25 = d.get('PM2.5', {}).get('value')
-            pm10 = d.get('PM10', {}).get('value')
-            if pm25 is not None:
-                readings.append(f"PM2.5: {pm25:.0f} µg/m³")
-            if pm10 is not None:
-                readings.append(f"PM10: {pm10:.0f} µg/m³")
-
-            # AQI
-            if pm25 is not None:
-                aqi_val = APC1.compute_aqi_pm25(pm25)
-                if aqi_val is not None:
-                    readings.append(f"AQI: {int(aqi_val)}")
-        except Exception:
-            pass
+    pm25 = data.get('pm25')
+    pm10 = data.get('pm10')
+    aqi_pm25 = data.get('aqi_pm25')
+    
+    if pm25 is not None:
+        readings.append(f"PM2.5: {pm25:.0f} µg/m³")
+    if pm10 is not None:
+        readings.append(f"PM10: {pm10:.0f} µg/m³")
+    if aqi_pm25 is not None:
+        readings.append(f"AQI: {int(aqi_pm25)}")
 
     # Battery
-    if batt:
-        try:
-            v = batt.read_voltage()
-            p = batt.read_percentage()
-            readings.append(f"Battery: {v:.2f}V ({p:.0f}%)")
-        except Exception:
-            readings.append("Battery: --")
+    v = data.get('battery_voltage')
+    p = data.get('battery_percent')
+    if v is not None and p is not None:
+        readings.append(f"Battery: {v:.2f}V ({p:.0f}%)")
+    elif cache.has_battery_data():
+        readings.append("Battery: --")
 
     # Join into a single string with separators for continuous scrolling
     if readings:
@@ -76,16 +86,22 @@ def _collect_readings(sht, apc1, batt):
         return "No sensors"
 
 
-def draw_screen(name, oled, sht, apc1, batt, font_scales):
-    """Render a named screen to the OLED using connected sensors."""
+def draw_screen(name, oled, cache, font_scales):
+    """Render a named screen to the OLED using cached sensor data.
+    
+    Args:
+        name: Screen name/ID
+        oled: SSD1306 display instance
+        cache: SensorCache instance
+        font_scales: Dictionary of font scales (legacy, may be unused)
+    """
     global _scroll_marquee, _scroll_text
     oled.fill(0)
 
-    if name == "sht" and sht:
-        try:
-            t, h = sht.measure()
-        except Exception:
-            t, h = None, None
+    if name == "sht":
+        # Get cached SHTC3 data
+        t, h, _ = cache.get_shtc3()
+        
         # Heading - use amstrad font for consistency
         draw_text(oled, "Temp & Humidity", 0, 0, font="amstrad", align="left")
         # Values - use large font for readability
@@ -95,75 +111,54 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
         else:
             draw_block(oled, ["T: --", "H: --"], 0, 16, font="helvB12", line_spacing=2)
 
-    elif name == "pm" and apc1:
-        try:
-            d = apc1.read_all()
-            # Title with units in parentheses
-            # Use amstrad font which supports µ and ³
-            draw_text(oled, "Particles (µg/m³)", 0, 0,
-                      font="amstrad", align="left")
-            lines = []
-            # Only show PM2.5 and PM10, handle missing data gracefully
-            pm25_val = (d.get('PM2.5', {}).get('value')
-                        if 'PM2.5' in d else None)
-            pm10_val = (d.get('PM10', {}).get('value')
-                        if 'PM10' in d else None)
+    elif name == "pm":
+        # Get cached PM data
+        pm1, pm25, pm10, _ = cache.get_apc1_pm()
+        
+        # Title with units in parentheses
+        # Use amstrad font which supports µ and ³
+        draw_text(oled, "Particles (µg/m³)", 0, 0,
+                  font="amstrad", align="left")
+        lines = []
+        
+        # Format with space after colon, use larger font for values
+        if pm25 is not None:
+            lines.append(f"PM2.5: {pm25:.0f}")
+        else:
+            lines.append("PM2.5: --")
 
-            # Format with space after colon, use larger font for values
-            if pm25_val is not None:
-                lines.append(f"PM2.5: {pm25_val:.0f}")
-            else:
-                lines.append("PM2.5: --")
+        if pm10 is not None:
+            lines.append(f"PM10: {pm10:.0f}")
+        else:
+            lines.append("PM10: --")
 
-            if pm10_val is not None:
-                lines.append(f"PM10: {pm10_val:.0f}")
-            else:
-                lines.append("PM10: --")
+        if lines:
+            # Use larger font (helvB12) for better readability
+            draw_block(oled, lines, 0, 16, font="helvB12", line_spacing=2)
+        else:
+            draw_text(oled, "No data", 0, 20, font="amstrad")
 
-            if lines:
-                # Use larger font (helvB12) for better readability
-                draw_block(oled, lines, 0, 16, font="helvB12", line_spacing=2)
-            else:
-                draw_text(oled, "No data", 0, 20, font="amstrad")
-        except Exception:
-            draw_text(oled, "Particles (µg/m³)", 0, 0,
-                      font="amstrad", align="left")
-            draw_text(oled, "Sensor Error", 0, 20, font="amstrad")
+    elif name == "aqi":
+        # Get cached AQI data
+        aqi_pm25, aqi_tvoc, pm25, _ = cache.get_apc1_aqi()
+        
+        # Use amstrad font for title consistency
+        draw_text(oled, "AQI", 0, 0, font="amstrad", align="left")
 
-    elif name == "aqi" and apc1:
-        try:
-            d = apc1.read_all()
-            pm25 = (d.get("PM2.5", {}).get("value")
-                    if "PM2.5" in d else None)
+        if aqi_pm25 is not None:
+            # Use extra large font for AQI number
+            draw_text(oled, f"{int(aqi_pm25)}", 0, 20, font="PTSans_20")
+            # Make "Major:PM2.5" slightly larger
+            draw_text(oled, "Major:PM2.5", 0, 52,
+                      font="PTSans_08", align="left")
+        else:
+            draw_text(oled, "--", 0, 20, font="PTSans_20")
+            draw_text(oled, "No data", 0, 52, font="amstrad", align="left")
 
-            if pm25 is not None:
-                aqi_val = APC1.compute_aqi_pm25(pm25)
-                aqi = int(aqi_val) if aqi_val is not None else None
-            else:
-                aqi = None
-
-            # Use amstrad font for title consistency
-            draw_text(oled, "AQI", 0, 0, font="amstrad", align="left")
-
-            if aqi is not None:
-                # Use extra large font for AQI number
-                draw_text(oled, f"{aqi}", 0, 20, font="PTSans_20")
-                # Make "Major:PM2.5" slightly larger
-                draw_text(oled, "Major:PM2.5", 0, 52,
-                          font="PTSans_08", align="left")
-            else:
-                draw_text(oled, "--", 0, 20, font="PTSans_20")
-                draw_text(oled, "No data", 0, 52, font="amstrad", align="left")
-        except Exception:
-            draw_text(oled, "AQI", 0, 0, font="amstrad", align="left")
-            draw_text(oled, "Error", 0, 20, font="amstrad")
-
-    elif name == "battery" and batt:
-        try:
-            v = batt.read_voltage()
-            p = batt.read_percentage()
-        except Exception:
-            v, p = None, None
+    elif name == "battery":
+        # Get cached battery data
+        v, p, _ = cache.get_battery()
+        
         # Use amstrad font for title consistency
         draw_text(oled, "Battery", 0, 0, font="amstrad", align="left")
         if v is not None and p is not None:
@@ -180,9 +175,9 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
         oled.fill_rect(0, 0, 128, 16, 0)
         draw_text(oled, "All Readings", 0, 0, font="amstrad", align="left")
 
-        # Collect all readings into a single string and initialize last update time
+        # Collect all readings from cache into a string
         global _scroll_text, _scroll_last_update
-        _scroll_text = _collect_readings(sht, apc1, batt)
+        _scroll_text = _collect_readings(cache)
         _scroll_last_update = time.time()
 
         # Initialize marquee if needed - use larger font for readability
@@ -211,14 +206,12 @@ def draw_screen(name, oled, sht, apc1, batt, font_scales):
     oled.show()
 
 
-def step_scroll_screen(oled, sht, apc1, batt, current_time):
+def step_scroll_screen(oled, cache, current_time):
     """Step the scrolling marquee when scroll screen is active.
 
     Args:
         oled: Display device
-        sht: SHTC3 sensor instance (or None)
-        apc1: APC1 sensor instance (or None)
-        batt: Battery instance (or None)
+        cache: SensorCache instance
         current_time: Current time.time() value
 
     Returns True (always, since it's continuous scrolling).
@@ -242,7 +235,7 @@ def step_scroll_screen(oled, sht, apc1, batt, current_time):
 
         # Refresh readings only after a full scroll cycle completes
         if completed:
-            new_text = _collect_readings(sht, apc1, batt)
+            new_text = _collect_readings(cache)
             if new_text != _scroll_text:
                 _scroll_text = new_text
                 # Restart marquee with updated text
