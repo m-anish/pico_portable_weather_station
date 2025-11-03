@@ -1,7 +1,46 @@
 import network, socket, time
 
+try:
+    import uasyncio as asyncio
+except ImportError:
+    import asyncio
+
+# Global WLAN instance
+_wlan = None
+
+def get_wlan():
+    """Get the global WLAN instance (creates if needed)."""
+    global _wlan
+    if _wlan is None:
+        _wlan = network.WLAN(network.STA_IF)
+    return _wlan
+
+def is_connected():
+    """Check if WiFi is currently connected."""
+    wlan = get_wlan()
+    return wlan.active() and wlan.isconnected()
+
+def get_status():
+    """Get detailed WiFi status.
+    
+    Returns:
+        dict: Status info with keys: connected, ip, ssid, rssi
+    """
+    wlan = get_wlan()
+    if not wlan.active():
+        return {"connected": False, "ip": None, "ssid": None, "rssi": None}
+    
+    status = {
+        "connected": wlan.isconnected(),
+        "ip": wlan.ifconfig()[0] if wlan.isconnected() else None,
+        "ssid": wlan.config('essid') if wlan.isconnected() else None,
+        "rssi": wlan.status('rssi') if wlan.isconnected() else None
+    }
+    return status
+
 def connect(ssid, password, oled=None):
-    wlan = network.WLAN(network.STA_IF)
+    """Synchronous WiFi connection (legacy compatibility)."""
+    wlan = get_wlan()
     wlan.active(True)
     wlan.connect(ssid, password)
     for _ in range(30):
@@ -16,6 +55,71 @@ def connect(ssid, password, oled=None):
     wlan.disconnect()
     wlan.active(False)
     return False
+
+async def connect_async(ssid, password, timeout_s=15, oled=None):
+    """Async WiFi connection with timeout.
+    
+    Args:
+        ssid: WiFi SSID
+        password: WiFi password
+        timeout_s: Connection timeout in seconds
+        oled: Optional OLED display for status
+    
+    Returns:
+        bool: True if connected, False otherwise
+    """
+    import gc
+    
+    wlan = get_wlan()
+    wlan.active(True)
+    
+    # Free memory before WiFi connection
+    gc.collect()
+    
+    if oled:
+        oled.fill(0)
+        oled.text("WiFi:", 0, 0)
+        oled.text(ssid, 0, 12)
+        oled.text("Connecting...", 0, 24)
+        oled.show()
+    
+    print(f"Connecting to WiFi: {ssid}")
+    wlan.connect(ssid, password)
+    
+    # Wait for connection with timeout
+    attempts = timeout_s * 2  # Check every 0.5s
+    for i in range(attempts):
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+            print(f"✓ WiFi connected! IP: {ip}")
+            if oled:
+                oled.fill(0)
+                oled.text("WiFi OK!", 0, 0)
+                oled.text(ip, 0, 12)
+                oled.show()
+                await asyncio.sleep(1)
+            return True
+        await asyncio.sleep(0.5)
+    
+    # Connection failed
+    print("⚠ WiFi connection timeout")
+    if oled:
+        oled.fill(0)
+        oled.text("WiFi timeout", 0, 0)
+        oled.text("Continuing...", 0, 12)
+        oled.show()
+        await asyncio.sleep(1)
+    
+    wlan.disconnect()
+    return False
+
+def disconnect():
+    """Disconnect from WiFi."""
+    wlan = get_wlan()
+    if wlan.active():
+        wlan.disconnect()
+        wlan.active(False)
+    print("WiFi disconnected")
 
 def start_config_ap(ap_ssid="PICO_SETUP", ap_password="12345678", on_save=None, oled=None):
     ap = network.WLAN(network.AP_IF)

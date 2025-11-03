@@ -130,12 +130,12 @@ def get_blynk_settings(settings: dict):
     settings structure expects:
       {
         "blynk": {
-          "enabled": <bool>,           # Enable/disable Blynk integration
-          "template_id": <str>,        # Blynk template ID
-          "template_name": <str>,      # Blynk template name
-          "auth_token": <str>,         # Blynk authentication token
-          "mqtt_broker": <str>,        # MQTT broker address
-          "publish_interval_s": <int>  # Data publish interval in seconds
+          "enabled": <bool>,                # Enable/disable Blynk integration
+          "template_id": <str>,             # Blynk template ID
+          "template_name": <str>,           # Blynk template name
+          "auth_token": <str>,              # Blynk authentication token
+          "mqtt_broker": <str>,             # MQTT broker address
+          "mqtt_update_interval_s": <int>   # Data publish interval in seconds
         }
       }
     
@@ -149,7 +149,7 @@ def get_blynk_settings(settings: dict):
         "template_name": blynk_cfg.get("template_name", ""),
         "auth_token": blynk_cfg.get("auth_token", ""),
         "mqtt_broker": blynk_cfg.get("mqtt_broker", "blynk.cloud"),
-        "publish_interval_s": blynk_cfg.get("publish_interval_s", 60)
+        "mqtt_update_interval_s": blynk_cfg.get("mqtt_update_interval_s", 30)
     }
 
 
@@ -175,4 +175,27 @@ def get_ntp_settings(settings: dict):
         "servers": ntp_cfg.get("servers", ["pool.ntp.org"]),
         "timezone_offset_hours": ntp_cfg.get("timezone_offset_hours", 0.0),
         "sync_interval_s": ntp_cfg.get("sync_interval_s", 3600)
+    }
+
+
+def get_wifi_settings(settings: dict):
+    """Return WiFi connection settings from settings with defaults.
+    
+    settings structure expects:
+      {
+        "wifi": {
+          "ssid": <str>,                # WiFi network name
+          "password": <str>,            # WiFi password
+          "retry_interval_s": <int>     # Connection retry interval in seconds
+        }
+      }
+    
+    Returns:
+        dict: WiFi configuration dictionary
+    """
+    wifi_cfg = (settings or {}).get("wifi", {})
+    return {
+        "ssid": wifi_cfg.get("ssid", ""),
+        "password": wifi_cfg.get("password", ""),
+        "retry_interval_s": wifi_cfg.get("retry_interval_s", 60)
     }

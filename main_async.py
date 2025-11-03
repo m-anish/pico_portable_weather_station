@@ -2,7 +2,7 @@
 # Refactored version with async tasks and sensor/display decoupling
 # Components: APC1, SHTC3, Battery, SSD1306 OLED, Rotary Encoder
 
-import json, time, sys, machine
+import json, time, sys, machine, gc
 
 try:
     import uasyncio as asyncio
@@ -13,6 +13,13 @@ try:
     import micropython
 except ImportError:
     micropython = None
+
+
+def log_memory(label):
+    """Helper to log memory status with label."""
+    free = gc.mem_free() / 1024
+    used = gc.mem_alloc() / 1024
+    print(f"[{label}] MEM: {free:.1f}KB free, {used:.1f}KB used")
 
 from machine import I2C, Pin, WDT
 from ssd1306 import SSD1306_I2C
@@ -29,7 +36,10 @@ from config import (
     get_sensor_intervals,
     get_display_settings,
     get_ntp_settings,
+    get_blynk_settings,
+    get_wifi_settings,
 )
+import wifi_helper
 from apc1_power import APC1Power
 from display_utils import show_big
 from sensor_cache import SensorCache
@@ -119,6 +129,24 @@ try:
             sync_interval_s=ntp_cfg["sync_interval_s"]
         )
         print(f"NTP sync configured (timezone: UTC{ntp_sync._format_offset()})")
+    
+    # Initialize Blynk publisher if enabled
+    blynk_publisher = None
+    blynk_cfg = get_blynk_settings(settings)
+    if blynk_cfg["enabled"]:
+        try:
+            import blynk_mqtt
+            from blynk_publisher import BlynkPublisher
+            
+            blynk_publisher = BlynkPublisher(
+                sensor_cache=cache,
+                blynk_mqtt=blynk_mqtt,
+                update_interval_s=blynk_cfg["mqtt_update_interval_s"]
+            )
+            print(f"Blynk publisher configured (interval: {blynk_cfg['mqtt_update_interval_s']}s)")
+        except Exception as e:
+            print(f"⚠ Blynk initialization failed: {e}")
+            blynk_publisher = None
 
 except Exception as e:
     # Critical initialization error - show on OLED if possible
@@ -193,17 +221,10 @@ async def display_task():
     
     while True:
         try:
-            screen_name = screen_mgr.get_current_screen_name()
-            
-            # Handle scrolling screen separately (needs continuous updates)
-            if screen_name == "scroll":
-                screen_mgr.step_scroll(cache, oled)
-                oled.show()
-            else:
-                # Regular screen refresh based on interval
-                if screen_mgr.should_refresh():
-                    screen_mgr.draw_screen(cache, oled)
-                    screen_mgr.mark_refreshed()
+            # Regular screen refresh based on interval
+            if screen_mgr.should_refresh():
+                screen_mgr.draw_screen(cache, oled)
+                screen_mgr.mark_refreshed()
         except Exception as e:
             print(f"Display error: {e}")
         
@@ -299,16 +320,185 @@ async def screen_update_task():
 
 # -------- MAIN ASYNC LOOP --------
 
+async def memory_monitor_task(interval_s=30, threshold_kb=20):
+    """Monitor and log free memory periodically.
+    
+    Args:
+        interval_s: How often to check memory (seconds)
+        threshold_kb: Warn if free memory drops below this (KB)
+    """
+    print(f"Memory monitor started (check every {interval_s}s, threshold: {threshold_kb}KB)")
+    
+    while True:
+        await asyncio.sleep(interval_s)
+        
+        try:
+            gc.collect()
+            free = gc.mem_free()
+            used = gc.mem_alloc()
+            
+            free_kb = free / 1024
+            used_kb = used / 1024
+            
+            print(f"💾 MEM: {free_kb:.1f}KB free / {used_kb:.1f}KB used")
+            
+            if free_kb < threshold_kb:
+                print(f"⚠ LOW MEMORY! Only {free_kb:.1f}KB free")
+                gc.collect()  # Extra GC on low memory
+        except Exception as e:
+            print(f"Memory monitor error: {e}")
+
+
+async def wifi_monitor_task(wifi_cfg):
+    """Monitor WiFi connection and auto-reconnect if disconnected.
+    
+    Args:
+        wifi_cfg: WiFi configuration dict with ssid, password, retry_interval_s
+    """
+    global blynk_publisher
+    
+    retry_interval = wifi_cfg["retry_interval_s"]
+    ssid = wifi_cfg["ssid"]
+    password = wifi_cfg["password"]
+    
+    print(f"WiFi monitor started (check every {retry_interval}s)")
+    
+    while True:
+        await asyncio.sleep(retry_interval)
+        
+        try:
+            if not wifi_helper.is_connected():
+                print("⚠ WiFi disconnected - attempting reconnect...")
+                
+                # Try to reconnect
+                connected = await wifi_helper.connect_async(ssid, password, timeout_s=15)
+                
+                if connected:
+                    print("✓ WiFi reconnected!")
+                    
+                    # Re-enable NTP if configured
+                    if ntp_sync and not ntp_sync.is_synced():
+                        print("Syncing NTP after WiFi reconnect...")
+                        await ntp_sync.sync_time_async()
+                    
+                    # Re-enable Blynk if configured
+                    if blynk_publisher and not blynk_publisher.enabled:
+                        print("Re-enabling Blynk after WiFi reconnect...")
+                        blynk_publisher.enable()
+                else:
+                    print("⚠ WiFi reconnect failed - will retry")
+            # else: WiFi is connected, all good
+                
+        except Exception as e:
+            print(f"WiFi monitor error: {e}")
+
+
+async def ntp_mqtt_recovery_task():
+    """Background task to recover NTP and enable MQTT if they failed initially.
+    
+    Attempts NTP sync every 5 minutes if not synced.
+    Enables Blynk publisher once NTP is available.
+    """
+    global blynk_publisher
+    
+    print("NTP/MQTT recovery task started")
+    
+    while True:
+        await asyncio.sleep(300)  # Check every 5 minutes
+        
+        try:
+            # Try to recover NTP if not synced
+            if ntp_sync and not ntp_sync.is_synced():
+                print("Attempting NTP recovery...")
+                if await ntp_sync.sync_time_async():
+                    print("✓ NTP recovered!")
+                    
+                    # Enable Blynk if configured and NTP now available
+                    if blynk_publisher and not blynk_publisher.enabled:
+                        print("Enabling Blynk publisher...")
+                        blynk_publisher.enable()
+        except Exception as e:
+            print(f"Recovery task error: {e}")
+
+
 async def main():
-    """Main async coordinator - starts all tasks."""
+    """Main async coordinator - starts all tasks.
+    
+    Features graceful degradation:
+    - Continues running even if WiFi fails
+    - Continues running even if NTP fails
+    - Continues running even if MQTT fails
+    - Display always works locally
+    """
+    global blynk_publisher
+    
     print("Starting async tasks...")
+    log_memory("Startup")
     
-    # Perform initial NTP sync before starting other tasks (if enabled)
-    if ntp_sync:
-        print("Performing initial NTP sync...")
-        await ntp_sync.sync_time_async()
+    # Get WiFi configuration
+    wifi_cfg = get_wifi_settings(settings)
     
-    # Create task list
+    # Aggressive GC before WiFi connection
+    gc.collect()
+    log_memory("Before WiFi")
+    
+    # Connect WiFi at startup (if Blynk or NTP enabled)
+    wifi_connected = False
+    if blynk_cfg["enabled"] or ntp_cfg["enabled"]:
+        print("Connecting to WiFi...")
+        try:
+            wifi_connected = await wifi_helper.connect_async(
+                wifi_cfg["ssid"], 
+                wifi_cfg["password"],
+                timeout_s=15,
+                oled=oled
+            )
+            if wifi_connected:
+                print("✓ WiFi connected")
+            else:
+                print("⚠ WiFi connection failed - continuing local-only")
+        except Exception as e:
+            print(f"⚠ WiFi error: {e}")
+            print("⚠ Continuing local-only")
+    
+    # GC after WiFi
+    gc.collect()
+    log_memory("After WiFi")
+    
+    # Try initial NTP sync (only if WiFi connected)
+    ntp_available = False
+    if ntp_sync and wifi_connected:
+        gc.collect()  # GC before NTP
+        print("Attempting initial NTP sync...")
+        try:
+            ntp_available = await ntp_sync.sync_time_async()
+            if ntp_available:
+                print("✓ NTP synced")
+            else:
+                print("⚠ NTP sync failed - will retry in background")
+        except Exception as e:
+            print(f"⚠ NTP sync error: {e}")
+            print("⚠ Will retry in background")
+        gc.collect()  # GC after NTP
+        log_memory("After NTP")
+    elif ntp_sync and not wifi_connected:
+        print("⚠ NTP disabled (no WiFi)")
+    
+    # GC before MQTT initialization
+    gc.collect()
+    
+    # Enable Blynk publisher (only if WiFi connected and NTP available)
+    if blynk_publisher:
+        if wifi_connected and ntp_available:
+            blynk_publisher.enable()
+            print("✓ Blynk publisher enabled")
+        else:
+            if not wifi_connected:
+                print("⚠ Blynk disabled (no WiFi)")
+            elif not ntp_available:
+                print("⚠ Blynk disabled (waiting for NTP)")
+    
+    # Create core task list (always runs)
     tasks = [
         asyncio.create_task(read_shtc3_task(cache, sht, SHTC3_INTERVAL)),
         asyncio.create_task(read_apc1_task(cache, apc1, APC1_INTERVAL)),
@@ -325,10 +515,34 @@ async def main():
         from ntp_helper import ntp_sync_task
         tasks.append(asyncio.create_task(ntp_sync_task(ntp_sync, initial_sync=False)))
     
+    # Add Blynk MQTT task if configured (with robust error handling)
+    if blynk_publisher:
+        try:
+            # Start Blynk publisher task
+            tasks.append(asyncio.create_task(blynk_publisher.publish_task()))
+            
+            # Start Blynk MQTT connection task
+            import blynk_mqtt
+            tasks.append(asyncio.create_task(blynk_mqtt.task()))
+        except Exception as e:
+            print(f"⚠ Blynk task startup error: {e}")
+    
+    # Add memory monitoring task (always runs)
+    tasks.append(asyncio.create_task(memory_monitor_task(interval_s=30, threshold_kb=20)))
+    
+    # Add WiFi monitoring task (if WiFi features enabled)
+    if blynk_cfg["enabled"] or ntp_cfg["enabled"]:
+        tasks.append(asyncio.create_task(wifi_monitor_task(wifi_cfg)))
+    
+    # Add NTP/MQTT recovery task if either is enabled
+    if ntp_sync or blynk_publisher:
+        tasks.append(asyncio.create_task(ntp_mqtt_recovery_task()))
+    
     print(f"Started {len(tasks)} async tasks")
     print("=== System Running ===")
     
     # Wait for all tasks (they run forever)
+    # Each task has its own error handling - main loop never crashes
     await asyncio.gather(*tasks)
 
 

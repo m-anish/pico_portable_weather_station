@@ -18,12 +18,13 @@
     "battery_interval_s": 15
   },
   "display": {
-    "refresh_fps": 20,
-    "input_poll_hz": 50
+    "refresh_fps": 5,
+    "input_poll_hz": 20
   },
   "wifi": {
-    "ssid": "",
-    "password": ""
+    "ssid": "YourWiFiSSID",
+    "password": "YourWiFiPassword",
+    "retry_interval_s": 60
   },
   "blynk": {
     "enabled": false,
@@ -31,7 +32,7 @@
     "template_name": "",
     "auth_token": "",
     "mqtt_broker": "blynk.cloud",
-    "publish_interval_s": 60
+    "mqtt_update_interval_s": 30
   },
   "ntp": {
     "enabled": true,

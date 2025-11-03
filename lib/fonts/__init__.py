@@ -22,29 +22,24 @@ def _import_font(module_name, font_key):
         pass
     return False
 
-# Import all available fonts
-_import_font('fonts.ezFBfont_micro_full_05', 'micro')
-_import_font('fonts.ezFBfont_PTSans_06_latin_09', 'PTSans_06')
-_import_font('fonts.ezFBfont_PTSans_08_latin_14', 'PTSans_08')
+# Import only essential fonts (memory optimization - Phase 2)
+# Removed: micro, PTSans_06, PTSans_08, icons (saves ~20-30KB RAM)
+_import_font('fonts.ezFBfont_amstrad_cpc_extended_latin_08', 'amstrad')
 _import_font('fonts.ezFBfont_helvB12_latin_20', 'helvB12')
 _import_font('fonts.ezFBfont_PTSans_20_latin_30', 'PTSans_20')
-_import_font('fonts.ezFBfont_open_iconic_all_1x_0x0_0xFFF_08', 'icons')
-_import_font('fonts.ezFBfont_amstrad_cpc_extended_latin_08', 'amstrad')
 
 
 # Font name aliases for backward compatibility and convenience
+# Aliases now map to the 3 available fonts
 _FONT_ALIASES = {
-    '6x10': 'PTSans_06',      # Approximate match for small font
-    '8x13': 'PTSans_08',      # Approximate match for medium font
-    '12x24': 'helvB12',       # Approximate match for large font
-    'micro': 'micro',         # Tiny font
-    'small': 'PTSans_06',
-    'medium': 'PTSans_08',
-    'large': 'helvB12',
-    'xlarge': 'PTSans_20',
-    'symbols': 'icons',       # Icon/symbol font
-    'icon': 'icons',
-    'amstrad': 'amstrad',     # Extended character set font
+    '6x10': 'amstrad',        # Small font -> amstrad
+    '8x13': 'amstrad',        # Medium font -> amstrad
+    '12x24': 'helvB12',       # Large font -> helvB12
+    'small': 'amstrad',       # Small -> amstrad
+    'medium': 'helvB12',      # Medium -> helvB12
+    'large': 'helvB12',       # Large -> helvB12
+    'xlarge': 'PTSans_20',    # Extra large -> PTSans_20
+    'amstrad': 'amstrad',     # Direct mapping
 }
 
 

@@ -62,27 +62,8 @@ wifi = settings.get("wifi", {})
 ssid = wifi.get("ssid", "")
 password = wifi.get("password", "")
 
-connected = False
-
-if ssid and password:
-    oled.fill(0)
-    oled.text("Wi-Fi:", 0, 0)
-    oled.text(ssid, 0, 12)
-    oled.text("Connecting...", 0, 24)
-    oled.show()
-
-    connected = wifi_helper.connect(ssid, password, oled=oled)
-    if connected:
-        oled.text("OK", 0, 48)
-        oled.show()
-    else:
-        oled.fill(0)
-        oled.text("Wi-Fi failed!", 0, 0)
-        oled.text("Continuing...", 0, 16)
-        oled.show()
-        print("Wi-Fi connection failed; continuing without network.")
-        time.sleep(1)
-else:
+# Only start AP mode if no WiFi credentials configured
+if not ssid or not password:
     oled.fill(0)
     oled.text("No Wi-Fi set", 0, 0)
     oled.text("AP mode starting", 0, 12)
@@ -95,6 +76,14 @@ else:
         oled=oled
     )
     machine.reset()
+
+# WiFi credentials exist - let main.py handle connection
+oled.fill(0)
+oled.text("Wi-Fi config OK", 0, 0)
+oled.text(ssid, 0, 12)
+oled.text("(will connect", 0, 24)
+oled.text("in main.py)", 0, 36)
+oled.show()
 
 time.sleep(0.5)
 oled.fill(0)

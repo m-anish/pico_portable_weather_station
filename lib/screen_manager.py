@@ -3,7 +3,7 @@ Screen manager for handling screen selection and rendering with caching.
 """
 
 import time
-from screens import available_screens, draw_screen, step_scroll_screen
+from screens import available_screens, draw_screen
 from config import REFRESH_INTERVALS
 
 
@@ -85,16 +85,6 @@ class ScreenManager:
         """
         screen_name = self.get_current_screen_name()
         draw_screen(screen_name, oled, cache, self.font_scales)
-    
-    def step_scroll(self, cache, oled):
-        """Step the scroll screen animation.
-        
-        Args:
-            cache: SensorCache instance
-            oled: SSD1306 display instance
-        """
-        current_time = time.time()
-        return step_scroll_screen(oled, cache, current_time)
     
     def handle_button(self):
         """Handle button press for current screen.

@@ -95,7 +95,7 @@ async def _mqtt_connect():
     global connection_count
 
     mqtt.disconnect()
-    gc.collect()
+    gc.collect()  # Free memory before MQTT connection
     print("Connecting to MQTT broker...")
     mqtt.connect()
     mqtt.subscribe("downlink/#")
@@ -105,7 +105,7 @@ async def _mqtt_connect():
         "type": BLYNK_TEMPLATE_ID,
         "tmpl": BLYNK_TEMPLATE_ID,
         "ver":  firmware_version,
-        "rxbuff": 1024
+        "rxbuff": 512
     }
     # Send info to the server
     mqtt.publish("info/mcu", json.dumps(info))
@@ -124,6 +124,12 @@ async def task():
             if ssl_ctx and _ntp_sync and not _ntp_sync.is_synced():
                 print("NTP sync required for SSL connection...")
                 await _ntp_sync.sync_time_async()
+            
+            # Aggressive GC before MQTT/SSL connection attempt
+            gc.collect()
+            free_kb = gc.mem_free() / 1024
+            print(f"Pre-MQTT memory: {free_kb:.1f}KB free")
+            
             try:
                 await _mqtt_connect()
                 connected = True
