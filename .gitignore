@@ -38,3 +38,6 @@ ENV/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Actual json settings should not be stored
+*.json
