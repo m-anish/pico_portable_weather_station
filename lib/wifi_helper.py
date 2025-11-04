@@ -1,4 +1,4 @@
-import network, socket, time
+import network, socket, time, machine
 
 try:
     import uasyncio as asyncio
@@ -137,20 +137,97 @@ def disconnect():
     logger.info("WiFi disconnected")
 
 def start_config_ap(ap_ssid="PICO_SETUP", ap_password="12345678", on_save=None, oled=None):
-    ap = network.WLAN(network.AP_IF)
-    ap.active(True)
-    ap.config(essid=ap_ssid, password=ap_password)
-    while ap.active() == False:
-        pass
-    ip = ap.ifconfig()[0]
-    logger.info(f"AP started: {ap_ssid} {ip}")
-    if oled:
-        oled.fill(0)
-        oled.text("Wi-Fi Setup", 0, 0)
-        oled.text(ap_ssid, 0, 12)
-        oled.text("Pwd: 12345678", 0, 24)
-        oled.text(ip, 0, 36)
-        oled.show()
+    """Start WiFi access point for configuration with robust error handling."""
+    try:
+        logger.info("Starting AP mode...")
+        if oled:
+            oled.fill(0)
+            oled.text("Starting AP...", 0, 0)
+            oled.show()
+        
+        # Disable station mode first to avoid conflicts
+        wlan = get_wlan()
+        if wlan.active():
+            wlan.active(False)
+            logger.info("Disabled station mode")
+        
+        # Create and configure AP
+        ap = network.WLAN(network.AP_IF)
+        
+        # Reset AP interface to clean state
+        ap.active(False)
+        time.sleep(0.5)
+        
+        # Activate AP with error handling
+        try:
+            ap.active(True)
+            logger.info("AP interface activated")
+        except Exception as e:
+            logger.error(f"Failed to activate AP interface: {e}")
+            if oled:
+                oled.fill(0)
+                oled.text("AP Error!", 0, 0)
+                oled.text("Reset device", 0, 12)
+                oled.show()
+            time.sleep(2)
+            machine.reset()
+        
+        # Wait for AP to be ready with timeout
+        ap_ready_timeout = 5  # 5 seconds
+        start_time = time.time()
+        while not ap.active():
+            if time.time() - start_time > ap_ready_timeout:
+                logger.error("AP activation timeout")
+                if oled:
+                    oled.fill(0)
+                    oled.text("AP Timeout!", 0, 0)
+                    oled.text("Reset device", 0, 12)
+                    oled.show()
+                time.sleep(2)
+                machine.reset()
+            time.sleep(0.1)
+        
+        # Configure AP with error handling
+        try:
+            ap.config(essid=ap_ssid, password=ap_password)
+            logger.info(f"AP configured: {ap_ssid}")
+        except Exception as e:
+            logger.error(f"Failed to configure AP: {e}")
+            if oled:
+                oled.fill(0)
+                oled.text("AP Config Error!", 0, 0)
+                oled.text("Reset device", 0, 12)
+                oled.show()
+            time.sleep(2)
+            machine.reset()
+        
+        # Get IP address with error handling
+        ip = "192.168.4.1"  # Default Pico W AP IP
+        try:
+            ip = ap.ifconfig()[0]
+            logger.info(f"AP IP: {ip}")
+        except Exception as e:
+            logger.error(f"Failed to get AP IP: {e}")
+        
+        logger.info(f"AP started successfully: {ap_ssid} @ {ip}")
+        
+        if oled:
+            oled.fill(0)
+            oled.text("Wi-Fi Setup", 0, 0)
+            oled.text(ap_ssid, 0, 12)
+            oled.text("Pwd: 12345678", 0, 24)
+            oled.text(ip, 0, 36)
+            oled.show()
+
+    except Exception as e:
+        logger.error(f"Critical error in AP setup: {e}")
+        if oled:
+            oled.fill(0)
+            oled.text("AP Setup Failed", 0, 0)
+            oled.text("Reset device", 0, 12)
+            oled.show()
+        time.sleep(3)
+        machine.reset()
 
     html = """<!DOCTYPE html>
 <html>
