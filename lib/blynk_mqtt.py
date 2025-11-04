@@ -100,7 +100,8 @@ async def _mqtt_connect():
     logger.info("Connecting to MQTT broker...")
     mqtt.connect()
     mqtt.subscribe("downlink/#")
-    logger.info("Connected to Blynk.Cloud", "[secure]" if ssl_ctx else "[insecure]")
+    logger.info("Connected to Blynk.Cloud")
+    logger.info("[secure]" if ssl_ctx else "[insecure]")
 
     info = {
         "type": BLYNK_TEMPLATE_ID,
