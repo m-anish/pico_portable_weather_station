@@ -7,6 +7,42 @@ Falls back gracefully to built-in font.
 
 from display_utils import draw_text, draw_block
 from apc1 import APC1
+import uQR
+
+
+def draw_qr_code(oled, url, pixel_size=2):
+    """Draw a QR code on the OLED display.
+    
+    Args:
+        oled: SSD1306 display instance
+        url: URL to encode in QR code
+        pixel_size: Size of each QR module in pixels (default: 2)
+    """
+    try:
+        # Generate QR code matrix with medium error correction
+        qr_matrix = uQR.make(url, error_correction=uQR.ERROR_CORRECT_M)
+        
+        # Calculate QR code dimensions
+        qr_size = len(qr_matrix)
+        qr_pixel_width = qr_size * pixel_size
+        qr_pixel_height = qr_size * pixel_size
+        
+        # Center the QR code on display (128x64)
+        # Leave some space at top for title if needed
+        x_offset = (128 - qr_pixel_width) // 2
+        y_offset = (64 - qr_pixel_height) // 2
+        
+        # Draw each module as a filled rectangle
+        for row_idx, row in enumerate(qr_matrix):
+            for col_idx, module in enumerate(row):
+                if module:  # Black module
+                    x = x_offset + (col_idx * pixel_size)
+                    y = y_offset + (row_idx * pixel_size)
+                    oled.fill_rect(x, y, pixel_size, pixel_size, 1)
+                    
+    except Exception as e:
+        # If QR generation fails, show error
+        draw_text(oled, "QR Error", 0, 28, font="amstrad")
 
 
 def available_screens(cache):
@@ -26,6 +62,7 @@ def available_screens(cache):
         ("pm", "Particles"),
         ("gases", "Gases"),
         ("aqi", "AQI"),
+        ("connect", "Connect to.."),
         ("sysinfo", "System Info"),
         ("settings", "Settings")
     ]
@@ -109,6 +146,28 @@ def draw_screen(name, oled, cache, font_scales):
             # Sensor not available - show informative message
             draw_text(oled, "APC1 sensor", 0, 20, font="amstrad")
             draw_text(oled, "not detected", 0, 32, font="amstrad")
+
+    elif name == "connect":
+        # Connect to.. screen with QR code
+        try:
+            import wifi_helper
+            if wifi_helper.is_connected():
+                # WiFi is connected - show QR code
+                ip = wifi_helper.get_ip_address()
+                if ip:
+                    url = f"http://{ip}"
+                    draw_qr_code(oled, url, pixel_size=2)
+                else:
+                    # Connected but no IP? Shouldn't happen
+                    draw_text(oled, "No IP address", 0, 28, font="amstrad")
+            else:
+                # WiFi not connected - show message
+                draw_text(oled, "WiFi not", 0, 20, font="amstrad")
+                draw_text(oled, "connected", 0, 32, font="amstrad")
+        except Exception as e:
+            # Error checking WiFi status
+            draw_text(oled, "WiFi status", 0, 20, font="amstrad")
+            draw_text(oled, "unavailable", 0, 32, font="amstrad")
 
     elif name == "sysinfo":
         # Get cached battery data
