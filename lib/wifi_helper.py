@@ -148,17 +148,110 @@ def start_config_ap(ap_ssid="PICO_SETUP", ap_password="12345678", on_save=None, 
         oled.fill(0)
         oled.text("Wi-Fi Setup", 0, 0)
         oled.text(ap_ssid, 0, 12)
-        oled.text("Password: 12345678", 0, 24)
+        oled.text("Pwd: 12345678", 0, 24)
         oled.text(ip, 0, 36)
         oled.show()
 
     html = """<!DOCTYPE html>
 <html>
-<form action="/" method="POST">
-SSID:<br><input name="ssid"><br>
-Password:<br><input name="password"><br><br>
-<input type="submit" value="Save">
-</form>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PicoWeather Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .subtitle {
+            color: #667eea;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 500;
+        }
+        label {
+            display: block;
+            color: #555;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+            margin-bottom: 20px;
+        }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        input[type="submit"] {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        input[type="submit"]:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        input[type="submit"]:active {
+            transform: translateY(0);
+        }
+        @media (max-width: 480px) {
+            .container { padding: 30px 20px; }
+            h1 { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PicoWeather Initial Setup</h1>
+        <div class="subtitle">starstucklab.com</div>
+        <form action="/" method="POST">
+            <label for="ssid">WiFi Network (SSID)</label>
+            <input type="text" id="ssid" name="ssid" required autocomplete="off" placeholder="Enter your WiFi name">
+            
+            <label for="password">WiFi Password</label>
+            <input type="password" id="password" name="password" autocomplete="off" placeholder="Enter your WiFi password">
+            
+            <input type="submit" value="Save & Connect">
+        </form>
+    </div>
+</body>
 </html>"""
 
     addr = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
@@ -172,10 +265,94 @@ Password:<br><input name="password"><br><br>
         req = cl.recv(1024).decode()
         if "POST" in req:
             try:
-                data = req.split("\r\n\r\n")[1]
-                kv = dict(pair.split("=") for pair in data.split("&"))
-                ssid = kv.get("ssid", "")
-                password = kv.get("password", "")
+                # DIAGNOSTIC LOGGING
+                logger.info("="*50)
+                logger.info("POST REQUEST RECEIVED")
+                logger.info(f"Initial request length: {len(req)} bytes")
+                
+                # Extract Content-Length if present
+                content_length = 0
+                for line in req.split("\r\n"):
+                    if line.startswith("Content-Length:"):
+                        content_length = int(line.split(":")[1].strip())
+                        logger.info(f"Content-Length header: {content_length} bytes")
+                        break
+                
+                # Split headers from body
+                parts = req.split("\r\n\r\n", 1)
+                if len(parts) > 1:
+                    headers = parts[0]
+                    body = parts[1]
+                    logger.info(f"Initial body length: {len(body)} bytes")
+                    
+                    # If we have Content-Length and body is incomplete, keep reading
+                    if content_length > 0 and len(body) < content_length:
+                        logger.info(f"Body incomplete, reading more data...")
+                        while len(body) < content_length:
+                            more_data = cl.recv(1024).decode()
+                            body += more_data
+                            logger.info(f"Read {len(more_data)} more bytes, total body: {len(body)} bytes")
+                            if not more_data:  # Connection closed
+                                break
+                    
+                    data = body
+                    logger.info(f"Complete body received: {len(data)} bytes")
+                else:
+                    data = ""
+                    logger.error("Could not find request body separator!")
+                
+                logger.info(f"Form data: {repr(data)}")
+                
+                # Parse form data safely, handling edge cases
+                kv = {}
+                pairs = data.split("&")
+                logger.info(f"Split into {len(pairs)} pairs")
+                
+                for pair in pairs:
+                    logger.info(f"Processing pair: {repr(pair)}")
+                    if "=" in pair:
+                        # Split only on first "=" to handle values containing "="
+                        key, value = pair.split("=", 1)
+                        logger.info(f"  Key: {repr(key)}, Value (raw): {repr(value)}")
+                        
+                        # URL decode the value (replace + with space, handle %XX encoding)
+                        value = value.replace("+", " ")
+                        # Basic URL decoding for common characters
+                        try:
+                            # Simple percent-decoding for common cases
+                            while "%" in value:
+                                idx = value.index("%")
+                                if idx + 2 < len(value):
+                                    hex_str = value[idx+1:idx+3]
+                                    try:
+                                        char = chr(int(hex_str, 16))
+                                        value = value[:idx] + char + value[idx+3:]
+                                    except:
+                                        break
+                                else:
+                                    break
+                        except:
+                            pass  # If decoding fails, use value as-is
+                        
+                        logger.info(f"  Value (decoded): {repr(value)}")
+                        kv[key] = value
+                    else:
+                        logger.info(f"  Skipping pair (no '='): {repr(pair)}")
+                
+                logger.info(f"Parsed key-value pairs: {list(kv.keys())}")
+                
+                ssid = kv.get("ssid", "").strip()
+                password = kv.get("password", "").strip()
+                
+                logger.info(f"Final SSID: {repr(ssid)}, Password length: {len(password)}")
+                logger.info("="*50)
+                
+                if not ssid:
+                    logger.error("SSID is empty")
+                    cl.send("HTTP/1.0 400 Bad Request\r\n\r\nError: SSID cannot be empty")
+                    cl.close()
+                    continue
+                
                 if on_save:
                     on_save(ssid, password)
                 cl.send("HTTP/1.0 200 OK\r\n\r\nSaved. Rebooting...")
@@ -185,6 +362,8 @@ Password:<br><input name="password"><br><br>
                 machine.reset()
             except Exception as e:
                 logger.error(f"Form error: {e}")
+                cl.send("HTTP/1.0 500 Internal Server Error\r\n\r\nError processing form")
+                cl.close()
         else:
             cl.send("HTTP/1.0 200 OK\r\n\r\n" + html)
             cl.close()

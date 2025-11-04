@@ -608,8 +608,16 @@ async def main():
             )
             if wifi_connected:
                 logger.info("✓ WiFi connected")
+                # Clear the WiFi status message and trigger screen redraw
+                oled.fill(0)
+                oled.show()
+                screen_mgr.needs_redraw = True
             else:
                 logger.warn("⚠ WiFi connection failed - continuing local-only")
+                # Clear the failure message and trigger screen redraw
+                oled.fill(0)
+                oled.show()
+                screen_mgr.needs_redraw = True
         except Exception as e:
             logger.error(f"⚠ WiFi error: {e}")
             logger.error("⚠ Continuing local-only")
