@@ -10,6 +10,7 @@ try:
 except ImportError:
     import asyncio
 import time
+import logger
 
 
 async def read_shtc3_task(cache, sht, interval_s=5):
@@ -23,7 +24,7 @@ async def read_shtc3_task(cache, sht, interval_s=5):
     if sht is None:
         return
     
-    print(f"SHTC3 task started (interval: {interval_s}s)")
+    logger.debug(f"SHTC3 task started (interval: {interval_s}s)")
     
     while True:
         try:
@@ -32,9 +33,9 @@ async def read_shtc3_task(cache, sht, interval_s=5):
             # Update cache (thread-safe)
             cache.update_shtc3(temp, humid)
             if temp is not None:
-                print(f"SHTC3: {temp:.1f}°C, {humid:.1f}%")
+                logger.debug(f"SHTC3: {temp:.1f}°C, {humid:.1f}%")
         except Exception as e:
-            print(f"SHTC3 read error: {e}")
+            logger.error(f"SHTC3 read error: {e}")
             # Update cache with None to indicate error
             cache.update_shtc3(None, None)
         
@@ -53,7 +54,7 @@ async def read_apc1_task(cache, apc1, interval_s=10):
     if apc1 is None:
         return
     
-    print(f"APC1 task started (interval: {interval_s}s)")
+    logger.debug(f"APC1 task started (interval: {interval_s}s)")
     
     while True:
         try:
@@ -64,9 +65,9 @@ async def read_apc1_task(cache, apc1, interval_s=10):
             if readings:
                 pm25 = readings.get('PM2.5', {}).get('value')
                 if pm25 is not None:
-                    print(f"APC1: PM2.5={pm25:.0f} µg/m³")
+                    logger.debug(f"APC1: PM2.5={pm25:.0f} µg/m³")
         except Exception as e:
-            print(f"APC1 read error: {e}")
+            logger.error(f"APC1 read error: {e}")
             # Update cache with None to indicate error
             cache.update_apc1(None)
         
@@ -85,7 +86,7 @@ async def read_battery_task(cache, batt, interval_s=15):
     if batt is None:
         return
     
-    print(f"Battery task started (interval: {interval_s}s)")
+    logger.debug(f"Battery task started (interval: {interval_s}s)")
     
     while True:
         try:
@@ -95,9 +96,9 @@ async def read_battery_task(cache, batt, interval_s=15):
             # Update cache (thread-safe)
             cache.update_battery(voltage, percent)
             if voltage is not None:
-                print(f"Battery: {voltage:.2f}V ({percent:.0f}%)")
+                logger.debug(f"Battery: {voltage:.2f}V ({percent:.0f}%)")
         except Exception as e:
-            print(f"Battery read error: {e}")
+            logger.error(f"Battery read error: {e}")
             # Update cache with None to indicate error
             cache.update_battery(None, None)
         
@@ -123,20 +124,20 @@ async def apc1_station_mode_task(cache, apc1, apc1_power, station_settings):
         station_settings: Dict with cycle_period_s, warmup_time_s, read_delay_ms
     """
     if apc1 is None:
-        print("Station mode: APC1 not available, task exiting")
+        logger.warn("Station mode: APC1 not available, task exiting")
         return
     
     cycle_period = station_settings["cycle_period_s"]
     warmup_time = station_settings["warmup_time_s"]
     read_delay_ms = station_settings["read_delay_ms"]
     
-    print(f"Station mode task started")
-    print(f"  Cycle period: {cycle_period}s ({cycle_period/60:.1f} min)")
-    print(f"  Warmup time: {warmup_time}s")
+    logger.debug(f"Station mode task started")
+    logger.debug(f"  Cycle period: {cycle_period}s ({cycle_period/60:.1f} min)")
+    logger.debug(f"  Warmup time: {warmup_time}s")
     
     # Initial shutdown after boot
     apc1_power.disable()
-    print("Station mode: APC1 powered OFF (initial state)")
+    logger.debug("Station mode: APC1 powered OFF (initial state)")
     
     while True:
         # Sleep for the cycle period
@@ -144,7 +145,7 @@ async def apc1_station_mode_task(cache, apc1, apc1_power, station_settings):
         
         # Wake up APC1
         apc1_power.enable()
-        print(f"Station mode: APC1 powered ON (warming up for {warmup_time}s)")
+        logger.info(f"Station mode: APC1 powered ON (warming up for {warmup_time}s)")
         
         # Wait for sensor warmup
         await asyncio.sleep(warmup_time)
@@ -157,11 +158,11 @@ async def apc1_station_mode_task(cache, apc1, apc1_power, station_settings):
             if readings:
                 pm25 = readings.get('PM2.5', {}).get('value')
                 pm10 = readings.get('PM10', {}).get('value')
-                print(f"Station mode: Read APC1 - PM2.5={pm25:.0f}, PM10={pm10:.0f} µg/m³")
+                logger.info(f"Station mode: Read APC1 - PM2.5={pm25:.0f}, PM10={pm10:.0f} µg/m³")
             else:
-                print("Station mode: APC1 read returned no data")
+                logger.warn("Station mode: APC1 read returned no data")
         except Exception as e:
-            print(f"Station mode: APC1 read error: {e}")
+            logger.error(f"Station mode: APC1 read error: {e}")
             cache.update_apc1(None)
         
         # Small delay before shutting down
@@ -169,7 +170,7 @@ async def apc1_station_mode_task(cache, apc1, apc1_power, station_settings):
         
         # Power off APC1
         apc1_power.disable()
-        print(f"Station mode: APC1 powered OFF (sleeping for {cycle_period}s)")
+        logger.info(f"Station mode: APC1 powered OFF (sleeping for {cycle_period}s)")
 
 
 async def display_update_task(cache, oled, screen_manager, fps=20):
@@ -181,7 +182,7 @@ async def display_update_task(cache, oled, screen_manager, fps=20):
         screen_manager: Object with current_screen, draw_screen, step_scroll methods
         fps: Target frames per second for display updates
     """
-    print(f"Display task started (fps: {fps})")
+    logger.debug(f"Display task started (fps: {fps})")
     
     interval_ms = int(1000 / fps)
     
@@ -200,7 +201,7 @@ async def display_update_task(cache, oled, screen_manager, fps=20):
                     screen_manager.draw_screen(cache, oled)
                     screen_manager.mark_refreshed()
         except Exception as e:
-            print(f"Display update error: {e}")
+            logger.error(f"Display update error: {e}")
         
         # Sleep for frame interval
         await asyncio.sleep_ms(interval_ms)
@@ -216,7 +217,7 @@ async def input_handler_task(encoder, button, screen_manager, wake_callback, pol
         wake_callback: Function to call when user input detected
         poll_hz: Polling frequency in Hz
     """
-    print(f"Input task started (poll rate: {poll_hz}Hz)")
+    logger.debug(f"Input task started (poll rate: {poll_hz}Hz)")
     
     interval_ms = int(1000 / poll_hz)
     last_encoder_val = encoder.value()
@@ -243,7 +244,7 @@ async def input_handler_task(encoder, button, screen_manager, wake_callback, pol
                 await asyncio.sleep_ms(200)
         
         except Exception as e:
-            print(f"Input handler error: {e}")
+            logger.error(f"Input handler error: {e}")
         
         # Sleep for polling interval
         await asyncio.sleep_ms(interval_ms)
@@ -260,7 +261,7 @@ async def power_management_task(display, apc1_power, get_idle_time,
         display_sleep_s: Seconds before display sleeps
         apc1_sleep_s: Seconds before APC1 sleeps
     """
-    print(f"Power mgmt started (display: {display_sleep_s}s, apc1: {apc1_sleep_s}s)")
+    logger.debug(f"Power mgmt started (display: {display_sleep_s}s, apc1: {apc1_sleep_s}s)")
     
     display_on = True
     apc1_awake = True
@@ -273,24 +274,24 @@ async def power_management_task(display, apc1_power, get_idle_time,
             if display_on and idle_time > display_sleep_s:
                 display.poweroff()
                 display_on = False
-                print("Display off")
+                logger.info("Display off")
             elif not display_on and idle_time <= display_sleep_s:
                 display.poweron()
                 display_on = True
-                print("Display on")
+                logger.info("Display on")
             
             # APC1 power management
             if apc1_awake and idle_time > apc1_sleep_s:
                 apc1_power.disable()
                 apc1_awake = False
-                print("APC1 sleep")
+                logger.info("APC1 sleep")
             elif not apc1_awake and idle_time <= apc1_sleep_s:
                 apc1_power.enable()
                 apc1_awake = True
-                print("APC1 wake")
+                logger.info("APC1 wake")
         
         except Exception as e:
-            print(f"Power management error: {e}")
+            logger.error(f"Power management error: {e}")
         
         # Check power state every 5 seconds
         await asyncio.sleep(5)

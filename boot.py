@@ -4,6 +4,7 @@ from ssd1306 import SSD1306_I2C
 import wifi_helper
 from config import load_settings
 from wifi_config import load_wifi_config, update_wifi
+import logger
 
 # --- Initialize OLED early ---
 settings = load_settings()
@@ -26,7 +27,7 @@ for _ in range(10):  # check for ~1.0s (10×100ms)
     time.sleep(0.1)
 
 if held:
-    print("DEBUG: Exited program.")
+    logger.info("DEBUG: Exited program.")
     oled.fill(0)
     oled.text("DEBUG:", 0, 0)
     oled.text("Exited program.", 0, 12)
@@ -56,7 +57,7 @@ if not ssid:
     # Use wifi_config.update_wifi to save credentials
     def save_wifi_callback(ssid, password):
         update_wifi(ssid, password)
-        print("WiFi credentials saved to wifi.json")
+        logger.info("WiFi credentials saved to wifi.json")
 
     wifi_helper.start_config_ap(
         ap_ssid="PICO_SETUP",
@@ -78,12 +79,12 @@ time.sleep(0.5)
 oled.fill(0)
 oled.text("Starting main...", 0, 24)
 oled.show()
-print("Boot complete → launching main.py")
+logger.info("Boot complete → launching main.py")
 
 try:
     import main
 except Exception as e:
-    print("Error running main.py:", e)
+    logger.error(f"Error running main.py: {e}")
     oled.fill(0)
     oled.text("main.py error:", 0, 0)
     oled.text(str(e)[:16], 0, 16)

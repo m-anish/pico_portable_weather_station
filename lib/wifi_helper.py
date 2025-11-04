@@ -5,6 +5,8 @@ try:
 except ImportError:
     import asyncio
 
+import logger
+
 # Global WLAN instance
 _wlan = None
 
@@ -57,7 +59,7 @@ def connect(ssid, password, oled=None):
     for _ in range(30):
         if wlan.isconnected():
             ip = wlan.ifconfig()[0]
-            print("Connected, IP:", ip)
+            logger.info(f"Connected, IP: {ip}")
             if oled:
                 oled.text(ip, 0, 36)
                 oled.show()
@@ -94,7 +96,7 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
         oled.text("Connecting...", 0, 24)
         oled.show()
     
-    print(f"Connecting to WiFi: {ssid}")
+    logger.info(f"Connecting to WiFi: {ssid}")
     wlan.connect(ssid, password)
     
     # Wait for connection with timeout
@@ -102,7 +104,7 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
     for i in range(attempts):
         if wlan.isconnected():
             ip = wlan.ifconfig()[0]
-            print(f"✓ WiFi connected! IP: {ip}")
+            logger.info(f"✓ WiFi connected! IP: {ip}")
             if oled:
                 oled.fill(0)
                 oled.text("WiFi OK!", 0, 0)
@@ -113,7 +115,7 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
         await asyncio.sleep(0.5)
     
     # Connection failed
-    print("⚠ WiFi connection timeout")
+    logger.warn("⚠ WiFi connection timeout")
     if oled:
         oled.fill(0)
         oled.text("WiFi timeout", 0, 0)
@@ -132,7 +134,7 @@ def disconnect():
     if wlan.active():
         wlan.disconnect()
         wlan.active(False)
-    print("WiFi disconnected")
+    logger.info("WiFi disconnected")
 
 def start_config_ap(ap_ssid="PICO_SETUP", ap_password="12345678", on_save=None, oled=None):
     ap = network.WLAN(network.AP_IF)
@@ -141,7 +143,7 @@ def start_config_ap(ap_ssid="PICO_SETUP", ap_password="12345678", on_save=None, 
     while ap.active() == False:
         pass
     ip = ap.ifconfig()[0]
-    print("AP started:", ap_ssid, ip)
+    logger.info(f"AP started: {ap_ssid} {ip}")
     if oled:
         oled.fill(0)
         oled.text("Wi-Fi Setup", 0, 0)
@@ -163,7 +165,7 @@ Password:<br><input name="password"><br><br>
     s = socket.socket()
     s.bind(addr)
     s.listen(1)
-    print("Web config running on", ip)
+    logger.info(f"Web config running on {ip}")
 
     while True:
         cl, _ = s.accept()
@@ -182,7 +184,7 @@ Password:<br><input name="password"><br><br>
                 import machine
                 machine.reset()
             except Exception as e:
-                print("Form error:", e)
+                logger.error(f"Form error: {e}")
         else:
             cl.send("HTTP/1.0 200 OK\r\n\r\n" + html)
             cl.close()
