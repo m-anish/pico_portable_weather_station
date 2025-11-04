@@ -721,7 +721,8 @@ async def main():
     elif ntp_sync and not wifi_connected:
         print("  ⚠ NTP task skipped (no WiFi)")
 
-    # Add Blynk MQTT task ONLY if enabled (WiFi + NTP available)
+    # Add Blynk MQTT task ONLY if enabled and WiFi connected
+    # blynk_publisher.enabled is only True if WiFi and NTP succeeded
     if blynk_publisher and blynk_publisher.enabled:
         try:
             # Start Blynk publisher task
@@ -733,8 +734,8 @@ async def main():
             print("  Blynk/MQTT tasks added")
         except Exception as e:
             print(f"⚠ Blynk task startup error: {e}")
-    elif blynk_publisher and not blynk_publisher.enabled:
-        print("  ⚠ Blynk/MQTT tasks skipped (publisher disabled)")
+    elif blynk_publisher:
+        print("  ⚠ Blynk/MQTT tasks skipped (WiFi or NTP failed)")
 
     # Add webserver task if webserver was created
     if webserver:
@@ -754,13 +755,9 @@ async def main():
     # Add memory monitoring task (always runs)
     tasks.append(asyncio.create_task(memory_monitor_task(interval_s=30, threshold_kb=20)))
 
-    # Add WiFi monitoring task (if WiFi features enabled)
-    if blynk_cfg["enabled"] or ntp_cfg["enabled"]:
-        tasks.append(asyncio.create_task(wifi_monitor_task(wifi_cfg)))
-
-    # Add NTP/MQTT recovery task if either is enabled
-    if ntp_sync or blynk_publisher:
-        tasks.append(asyncio.create_task(ntp_mqtt_recovery_task()))
+    # Note: WiFi monitoring and recovery tasks removed
+    # If WiFi/MQTT/NTP fails initially, they stay disabled until reboot
+    # This prevents infinite retry loops that can cause device hangs
 
     print(f"Started {len(tasks)} async tasks")
     print("=== System Running ===")

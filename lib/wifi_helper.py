@@ -121,7 +121,9 @@ async def connect_async(ssid, password, timeout_s=15, oled=None):
         oled.show()
         # Don't sleep here - could be called before event loop starts
     
+    # Clean shutdown: disconnect and deactivate interface
     wlan.disconnect()
+    wlan.active(False)
     return False
 
 def disconnect():
