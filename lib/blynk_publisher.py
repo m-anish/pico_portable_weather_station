@@ -10,6 +10,7 @@ try:
     import uasyncio as asyncio
 except ImportError:
     import asyncio
+import logger
 
 
 class BlynkPublisher:
@@ -51,23 +52,23 @@ class BlynkPublisher:
         # Wrap callbacks to track state
         def on_connected_wrapper():
             self.mqtt_connected = True
-            print("✓ Blynk MQTT connected")
+            logger.info("✓ Blynk MQTT connected")
             # Call original callback
             if original_connected and original_connected != blynk_mqtt._dummy:
                 try:
                     original_connected()
                 except Exception as e:
-                    print(f"Blynk connected callback error: {e}")
+                    logger.error(f"Blynk connected callback error: {e}")
         
         def on_disconnected_wrapper():
             self.mqtt_connected = False
-            print("✗ Blynk MQTT disconnected")
+            logger.info("✗ Blynk MQTT disconnected")
             # Call original callback
             if original_disconnected and original_disconnected != blynk_mqtt._dummy:
                 try:
                     original_disconnected()
                 except Exception as e:
-                    print(f"Blynk disconnected callback error: {e}")
+                    logger.error(f"Blynk disconnected callback error: {e}")
         
         # Set wrapped callbacks
         blynk_mqtt.on_connected = on_connected_wrapper
@@ -76,12 +77,12 @@ class BlynkPublisher:
     def enable(self):
         """Enable MQTT publishing."""
         self.enabled = True
-        print("Blynk publisher enabled")
-    
+        logger.info("Blynk publisher enabled")
+
     def disable(self):
         """Disable MQTT publishing."""
         self.enabled = False
-        print("Blynk publisher disabled")
+        logger.info("Blynk publisher disabled")
     
     def is_ready(self):
         """Check if publisher is ready to publish."""
@@ -105,7 +106,7 @@ class BlynkPublisher:
             self.mqtt.publish(topic, value)
             return True
         except Exception as e:
-            print(f"Publish error ({datastream}): {e}")
+            logger.error(f"Publish error ({datastream}): {e}")
             self.error_count += 1
             return False
     
@@ -151,7 +152,7 @@ class BlynkPublisher:
         This task runs forever and publishes data at the configured interval.
         All exceptions are caught and logged - never crashes the main loop.
         """
-        print(f"Blynk publisher task started (interval: {self.update_interval_s}s)")
+        logger.info(f"Blynk publisher task started (interval: {self.update_interval_s}s)")
         
         while True:
             try:
@@ -169,11 +170,11 @@ class BlynkPublisher:
                 if published:
                     self.last_publish = time.time()
                     self.publish_count += 1
-                    print(f"📤 Blynk: Published {len(published)} datastreams")
-                
+                    logger.info(f"📤 Blynk: Published {len(published)} datastreams")
+
             except Exception as e:
                 # Catch ALL exceptions - never crash
-                print(f"Blynk publish task error: {e}")
+                logger.error(f"Blynk publish task error: {e}")
                 self.error_count += 1
                 # Continue running
     

@@ -14,6 +14,7 @@ import ujson
 import gc
 import time
 from micropython import const
+import logger
 
 # Constants for memory efficiency
 MAX_CONNECTIONS = const(2)
@@ -49,7 +50,7 @@ class WebSessionManager:
                 self.wake_callback("web")
                 
         except Exception as e:
-            print(f"Session registration error: {e}")
+            logger.error(f"Session registration error: {e}")
     
     def cleanup_expired(self):
         """Remove expired sessions to prevent memory leaks."""
@@ -71,14 +72,14 @@ class WebSessionManager:
             self.last_cleanup = now
             
             if expired:
-                print(f"Cleaned up {len(expired)} expired web sessions")
-                
+                logger.info(f"Cleaned up {len(expired)} expired web sessions")
+
         except Exception as e:
-            print(f"Session cleanup error: {e}")
-    
+            logger.error(f"Session cleanup error: {e}")
+
     def has_active_sessions(self):
         """Check if any web sessions are currently active.
-        
+
         Returns:
             bool: True if active sessions exist
         """
@@ -86,12 +87,12 @@ class WebSessionManager:
             self.cleanup_expired()
             return len(self.active_sessions) > 0
         except Exception as e:
-            print(f"Session check error: {e}")
+            logger.error(f"Session check error: {e}")
             return False
-    
+
     def get_session_count(self):
         """Get count of active sessions.
-        
+
         Returns:
             int: Number of active sessions
         """
@@ -99,7 +100,7 @@ class WebSessionManager:
             self.cleanup_expired()
             return len(self.active_sessions)
         except Exception as e:
-            print(f"Session count error: {e}")
+            logger.error(f"Session count error: {e}")
             return 0
 
 
@@ -144,7 +145,7 @@ class WebServer:
         # Power states getter (to be injected)
         self.get_power_states = None
         
-        print(f"WebServer initialized (port: {self.port}, max_connections: {self.max_connections})")
+        logger.info(f"WebServer initialized (port: {self.port}, max_connections: {self.max_connections})")
     
     def _get_html_template(self):
         """Generate HTML template with responsive design.
@@ -442,7 +443,7 @@ class WebServer:
 </html>"""
                 
             except Exception as e:
-                print(f"HTML template generation error: {e}")
+                logger.error(f"HTML template generation error: {e}")
                 self._html_template = "<html><body><h1>Template Error</h1></body></html>"
         
         return self._html_template
@@ -517,18 +518,18 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             return data
             
         except Exception as e:
-            print(f"Sensor data error: {e}")
+            logger.error(f"Sensor data error: {e}")
             return {}
-    
+
     def _get_system_status(self):
         """Get system status information."""
         try:
             status = {}
-            
+
             # Power states (injected during initialization)
             if self.get_power_states:
                 status.update(self.get_power_states())
-            
+
             # WiFi status
             try:
                 import wifi_helper
@@ -542,7 +543,7 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             except Exception:
                 status['wifi_connected'] = False
                 status['ip_address'] = None
-            
+
             # Memory info
             try:
                 gc.collect()
@@ -551,20 +552,20 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             except Exception:
                 status['free_memory'] = None
                 status['used_memory'] = None
-            
+
             # Uptime
             try:
                 status['uptime'] = int(time.time())
             except Exception:
                 status['uptime'] = None
-            
+
             # Web sessions
             status['active_sessions'] = self.sessions.get_session_count()
-            
+
             return status
-            
+
         except Exception as e:
-            print(f"System status error: {e}")
+            logger.error(f"System status error: {e}")
             return {}
     
     async def _send_response(self, writer, status_code, headers, content):
@@ -603,8 +604,8 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             await writer.drain()
             
         except Exception as e:
-            print(f"Send response error: {e}")
-    
+            logger.error(f"Send response error: {e}")
+
     async def _handle_request(self, reader, writer):
         """Handle individual HTTP request."""
         client_ip = "unknown"
@@ -613,33 +614,33 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             peername = writer.get_extra_info('peername')
             if peername:
                 client_ip = peername[0]
-            
+
             # Register session access
             self.sessions.register_access(client_ip)
-            
+
             # Read request line
             request_line = await reader.readline()
             if not request_line:
                 return
-            
+
             request_line = request_line.decode().strip()
             if not request_line:
                 return
-            
+
             # Parse request
             parts = request_line.split(' ')
             if len(parts) < 2:
                 await self._send_error(writer, 400, "Bad Request")
                 return
-            
+
             method, path = parts[0], parts[1]
-            
+
             # Read headers (skip for efficiency)
             while True:
                 header_line = await reader.readline()
                 if not header_line or header_line == b"\r\n":
                     break
-            
+
             # Route request
             if path == '/' or path == '/index.html':
                 await self._handle_main_page(writer)
@@ -653,9 +654,9 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
                 await self._handle_api_wake(writer)
             else:
                 await self._send_error(writer, 404, "Not Found")
-                
+
         except Exception as e:
-            print(f"Request error from {client_ip}: {e}")
+            logger.error(f"Request error from {client_ip}: {e}")
         finally:
             try:
                 await writer.wait_closed()
@@ -673,9 +674,9 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             }
             await self._send_response(writer, 200, headers, html_content)
         except Exception as e:
-            print(f"Main page error: {e}")
+            logger.error(f"Main page error: {e}")
             await self._send_error(writer, 500, "Internal Server Error")
-    
+
     async def _handle_api_data(self, writer):
         """Handle API data request."""
         try:
@@ -687,9 +688,9 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             }
             await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
-            print(f"API data error: {e}")
+            logger.error(f"API data error: {e}")
             await self._send_error(writer, 500, "Internal Server Error")
-    
+
     async def _handle_api_status(self, writer):
         """Handle API status request."""
         try:
@@ -701,20 +702,20 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             }
             await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
-            print(f"API status error: {e}")
+            logger.error(f"API status error: {e}")
             await self._send_error(writer, 500, "Internal Server Error")
-    
+
     async def _handle_api_heartbeat(self, writer, client_ip):
         """Handle heartbeat request."""
         try:
             self.sessions.register_access(client_ip)
-            
+
             response = {
                 'status': 'ok',
                 'timestamp': time.time(),
                 'active_sessions': self.sessions.get_session_count()
             }
-            
+
             json_content = ujson.dumps(response)
             headers = {
                 'Content-Type': 'application/json',
@@ -722,18 +723,18 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             }
             await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
-            print(f"Heartbeat error: {e}")
+            logger.error(f"Heartbeat error: {e}")
             await self._send_error(writer, 500, "Internal Server Error")
-    
+
     async def _handle_api_wake(self, writer):
         """Handle APC1 wake request."""
         try:
             if self.apc1_power:
                 self.apc1_power.enable()
-                
+
                 if self.wake_callback:
                     self.wake_callback("web_wake")
-                
+
                 response = {
                     'status': 'ok',
                     'message': 'APC1 wake initiated',
@@ -744,7 +745,7 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
                     'status': 'error',
                     'message': 'APC1 power control not available'
                 }
-            
+
             json_content = ujson.dumps(response)
             headers = {
                 'Content-Type': 'application/json',
@@ -752,7 +753,7 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             }
             await self._send_response(writer, 200, headers, json_content)
         except Exception as e:
-            print(f"APC1 wake error: {e}")
+            logger.error(f"APC1 wake error: {e}")
             await self._send_error(writer, 500, "Internal Server Error")
     
     async def _send_error(self, writer, status_code, message):
@@ -772,8 +773,8 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             headers = {'Content-Type': 'text/html'}
             await self._send_response(writer, status_code, headers, error_html)
         except Exception as e:
-            print(f"Error response failed: {e}")
-    
+            logger.error(f"Error response failed: {e}")
+
     async def _client_handler(self, reader, writer):
         """Handle client connection with connection tracking."""
         self.active_connections += 1
@@ -783,9 +784,9 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
                 timeout=RESPONSE_TIMEOUT
             )
         except asyncio.TimeoutError:
-            print("Client timeout")
+            logger.warn("Client timeout")
         except Exception as e:
-            print(f"Client handler error: {e}")
+            logger.error(f"Client handler error: {e}")
         finally:
             self.active_connections -= 1
             try:
@@ -793,7 +794,7 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
                 await writer.wait_closed()
             except Exception:
                 pass
-    
+
     async def start(self):
         """Start the webserver."""
         try:
@@ -803,12 +804,12 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
                 '0.0.0.0',
                 self.port
             )
-            print(f"WebServer started on port {self.port}")
+            logger.info(f"WebServer started on port {self.port}")
         except Exception as e:
-            print(f"WebServer start error: {e}")
+            logger.error(f"WebServer start error: {e}")
             self.running = False
             raise
-    
+
     async def stop(self):
         """Stop the webserver."""
         try:
@@ -816,42 +817,42 @@ footer { background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 15
             if self.server:
                 self.server.close()
                 await self.server.wait_closed()
-            print("WebServer stopped")
+            logger.info("WebServer stopped")
         except Exception as e:
-            print(f"WebServer stop error: {e}")
+            logger.error(f"WebServer stop error: {e}")
 
 
 # Webserver task for integration with main async loop
 async def webserver_task(sensor_cache, apc1_power=None, wake_callback=None, config=None):
     """Webserver task for integration with main async loop.
-    
+
     Args:
         sensor_cache: SensorCache instance
         apc1_power: APC1Power instance
         wake_callback: Function to call on web activity
         config: Webserver configuration
-        
+
     Returns:
         WebSessionManager: Session manager for web presence detection
     """
     webserver = None
-    
+
     try:
         # Create webserver instance
         webserver = WebServer(sensor_cache, apc1_power, wake_callback, config)
-        
+
         # Start webserver
         await webserver.start()
-        
+
         # Keep task running
         while webserver.running:
             await asyncio.sleep(1)
-            
+
     except Exception as e:
-        print(f"Webserver task error: {e}")
+        logger.error(f"Webserver task error: {e}")
     finally:
         if webserver:
             await webserver.stop()
-    
+
     # Return session manager for web presence detection
     return webserver.sessions if webserver else None

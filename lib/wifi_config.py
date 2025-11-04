@@ -7,6 +7,7 @@ without risking corruption of the main settings.json configuration file.
 
 import json
 import os
+import logger
 
 WIFI_FILE = "wifi.json"
 
@@ -25,7 +26,7 @@ def load_wifi_config():
             with open(WIFI_FILE, "r") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"WiFi config load error: {e}")
+        logger.error(f"WiFi config load error: {e}")
     
     # Return defaults (empty credentials trigger setup)
     return {
@@ -49,7 +50,7 @@ def save_wifi_config(wifi_cfg):
             json.dump(wifi_cfg, f)
         return True
     except Exception as e:
-        print(f"Failed to save WiFi config: {e}")
+        logger.error(f"Failed to save WiFi config: {e}")
         return False
 
 
@@ -59,7 +60,7 @@ def reset_wifi():
     Returns:
         bool: True if reset successful, False otherwise
     """
-    print("Resetting WiFi credentials...")
+    logger.info("Resetting WiFi credentials...")
     return save_wifi_config({
         "ssid": "",
         "password": "",
@@ -78,7 +79,7 @@ def update_wifi(ssid, password, retry_interval_s=60):
     Returns:
         bool: True if update successful, False otherwise
     """
-    print(f"Updating WiFi config: SSID={ssid}")
+    logger.info(f"Updating WiFi config: SSID={ssid}")
     return save_wifi_config({
         "ssid": ssid,
         "password": password,

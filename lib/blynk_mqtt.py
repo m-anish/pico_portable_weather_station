@@ -7,6 +7,7 @@
 import gc, sys, time, machine, json, asyncio
 from config import load_settings, get_blynk_settings, get_ntp_settings
 from umqtt.simple import MQTTClient, MQTTException
+import logger
 
 # Load Blynk configuration from settings.json
 _settings = load_settings()
@@ -45,7 +46,7 @@ LOGO = r"""
           /___/
 """
 
-print(LOGO)
+logger.info(LOGO)
 
 def _parse_url(url):
     try:
@@ -68,10 +69,10 @@ def _on_message(topic, payload):
 
     if topic == "downlink/redirect":
         _, mqtt.server, mqtt.port, _ = _parse_url(payload)
-        print("Redirecting...")
+        logger.info("Redirecting...")
         mqtt.disconnect()  # Trigger automatic reconnect
     elif topic == "downlink/reboot":
-        print("Rebooting...")
+        logger.info("Rebooting...")
         machine.reset()
     elif topic == "downlink/ping":
         pass  # MQTT client library automagically sends the QOS1 response
@@ -96,10 +97,10 @@ async def _mqtt_connect():
 
     mqtt.disconnect()
     gc.collect()  # Free memory before MQTT connection
-    print("Connecting to MQTT broker...")
+    logger.info("Connecting to MQTT broker...")
     mqtt.connect()
     mqtt.subscribe("downlink/#")
-    print("Connected to Blynk.Cloud", "[secure]" if ssl_ctx else "[insecure]")
+    logger.info("Connected to Blynk.Cloud", "[secure]" if ssl_ctx else "[insecure]")
 
     info = {
         "type": BLYNK_TEMPLATE_ID,
@@ -125,13 +126,13 @@ async def task():
         if not connected:
             # Sync time before SSL connection if NTP is enabled
             if ssl_ctx and _ntp_sync and not _ntp_sync.is_synced():
-                print("NTP sync required for SSL connection...")
+                logger.info("NTP sync required for SSL connection...")
                 await _ntp_sync.sync_time_async()
             
             # Aggressive GC before MQTT/SSL connection attempt
             gc.collect()
             free_kb = gc.mem_free() / 1024
-            print(f"Pre-MQTT memory: {free_kb:.1f}KB free")
+            logger.debug(f"Pre-MQTT memory: {free_kb:.1f}KB free")
             
             try:
                 await _mqtt_connect()
@@ -139,14 +140,14 @@ async def task():
                 retry_delay = 5  # Reset retry delay on successful connection
             except Exception as e:
                 if isinstance(e, OSError):
-                    print(f"Connection failed: {e} (retry in {retry_delay}s)")
+                    logger.error(f"Connection failed: {e} (retry in {retry_delay}s)")
                     await asyncio.sleep(retry_delay)
                     # Exponential backoff: 5s → 15s → 30s → 60s → 120s
                     retry_delay = min(retry_delay * 2, max_retry_delay)
                 elif isinstance(e, AttributeError):
                     pass  # This happens during reconnection
                 elif isinstance(e, MQTTException) and (e.value == 4 or e.value == 5):
-                    print("Invalid BLYNK_AUTH_TOKEN")
+                    logger.error("Invalid BLYNK_AUTH_TOKEN")
                     await asyncio.sleep(15 * 60)
                 else:
                     sys.print_exception(e)

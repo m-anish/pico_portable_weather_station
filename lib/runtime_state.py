@@ -7,6 +7,7 @@ without risking corruption of the main settings.json configuration file.
 
 import json
 import os
+import logger
 
 RUNTIME_FILE = "runtime.json"
 
@@ -25,7 +26,7 @@ def load_runtime_state():
             with open(RUNTIME_FILE, "r") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"Runtime state load error: {e}")
+        logger.error(f"Runtime state load error: {e}")
     
     # Return defaults
     return {"mode": None}
@@ -45,7 +46,7 @@ def save_runtime_state(state):
             json.dump(state, f)
         return True
     except Exception as e:
-        print(f"Failed to save runtime state: {e}")
+        logger.error(f"Failed to save runtime state: {e}")
         return False
 
 

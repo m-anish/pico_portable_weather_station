@@ -10,6 +10,7 @@ try:
     import uasyncio as asyncio
 except ImportError:
     import asyncio
+import logger
 
 
 class NTPSync:
@@ -55,12 +56,12 @@ class NTPSync:
         """
         # Check if already synced recently
         if self._is_time_valid():
-            print("System time already valid")
+            logger.info("System time already valid")
             self._synced = True
             self._last_sync = time.time()
             return True
-        
-        print("Syncing time with NTP...")
+
+        logger.info("Syncing time with NTP...")
         
         try:
             import ntptime
@@ -68,44 +69,44 @@ class NTPSync:
             # Try each server in order
             for server in self.servers:
                 try:
-                    print(f"  Trying NTP server: {server}")
-                    
+                    logger.debug(f"  Trying NTP server: {server}")
+
                     # Set server and timeout
                     ntptime.host = server
                     ntptime.timeout = timeout
-                    
+
                     # Sync time (gets UTC time)
                     ntptime.settime()
-                    
+
                     # Check if sync was successful
                     if self._is_time_valid():
                         utc_time = time.localtime()
-                        print(f"  ✓ NTP sync successful")
-                        print(f"  UTC time: {self._format_time(utc_time)}")
-                        
+                        logger.info(f"  ✓ NTP sync successful")
+                        logger.debug(f"  UTC time: {self._format_time(utc_time)}")
+
                         # Apply timezone offset if needed
                         if self.timezone_offset_seconds != 0:
                             # Note: We can't actually change localtime in MicroPython
                             # But we document the offset for display purposes
-                            print(f"  Timezone: UTC{self._format_offset()}")
-                            print(f"  Local time: {self.get_local_time_str()}")
-                        
+                            logger.debug(f"  Timezone: UTC{self._format_offset()}")
+                            logger.debug(f"  Local time: {self.get_local_time_str()}")
+
                         self._synced = True
                         self._last_sync = time.time()
                         return True
-                    
+
                 except Exception as e:
-                    print(f"  ✗ NTP sync failed with {server}: {e}")
+                    logger.error(f"  ✗ NTP sync failed with {server}: {e}")
                     continue
-            
-            print("✗ All NTP servers failed")
+
+            logger.error("✗ All NTP servers failed")
             return False
-            
+
         except ImportError:
-            print("✗ ntptime module not available")
+            logger.error("✗ ntptime module not available")
             return False
         except Exception as e:
-            print(f"✗ NTP sync error: {e}")
+            logger.error(f"✗ NTP sync error: {e}")
             return False
     
     async def sync_time_async(self, timeout=5, retry_delay=5, max_retries=3):
@@ -121,14 +122,14 @@ class NTPSync:
         """
         for attempt in range(max_retries):
             if attempt > 0:
-                print(f"NTP sync retry {attempt + 1}/{max_retries}...")
+                logger.info(f"NTP sync retry {attempt + 1}/{max_retries}...")
                 await asyncio.sleep(retry_delay)
-            
+
             # Run sync in a way that doesn't block other tasks
             if self.sync_time(timeout):
                 return True
-        
-        print(f"✗ NTP sync failed after {max_retries} attempts")
+
+        logger.error(f"✗ NTP sync failed after {max_retries} attempts")
         return False
     
     def is_synced(self):
@@ -201,17 +202,17 @@ async def ntp_sync_task(ntp_sync, initial_sync=True):
         ntp_sync: NTPSync instance
         initial_sync: Whether to perform initial sync before starting periodic sync
     """
-    print(f"NTP sync task started (interval: {ntp_sync.sync_interval_s}s)")
-    
+    logger.info(f"NTP sync task started (interval: {ntp_sync.sync_interval_s}s)")
+
     # Initial sync if requested
     if initial_sync:
-        print("Performing initial NTP sync...")
+        logger.info("Performing initial NTP sync...")
         await ntp_sync.sync_time_async()
-    
+
     # Periodic re-sync loop
     while True:
         await asyncio.sleep(ntp_sync.sync_interval_s)
-        
+
         if ntp_sync.needs_resync():
-            print("Periodic NTP re-sync...")
+            logger.info("Periodic NTP re-sync...")
             await ntp_sync.sync_time_async()

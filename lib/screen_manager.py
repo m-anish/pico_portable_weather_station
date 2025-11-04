@@ -5,6 +5,7 @@ Screen manager for handling screen selection and rendering with caching.
 import time
 from screens import available_screens, draw_screen
 from config import REFRESH_INTERVALS
+import logger
 
 
 class ScreenManager:
@@ -53,7 +54,7 @@ class ScreenManager:
         
         # Log if screens changed
         if len(self.screens) != old_count:
-            print(f"Available screens updated: {len(self.screens)} screens")
+            logger.info(f"Available screens updated: {len(self.screens)} screens")
     
     def get_current_screen_name(self):
         """Get the name/ID of the current screen."""
@@ -66,61 +67,61 @@ class ScreenManager:
         if self.screens:
             self.screen_idx = (self.screen_idx + 1) % len(self.screens)
             self.needs_redraw = True  # Force immediate redraw
-            print(f"Screen: {self.get_current_screen_name()}")
+            logger.debug(f"Screen: {self.get_current_screen_name()}")
     
     def prev_screen(self):
         """Switch to the previous screen."""
         if self.screens:
             self.screen_idx = (self.screen_idx - 1) % len(self.screens)
             self.needs_redraw = True  # Force immediate redraw
-            print(f"Screen: {self.get_current_screen_name()}")
-    
+            logger.debug(f"Screen: {self.get_current_screen_name()}")
+
     def should_refresh(self):
         """Check if current screen should be refreshed based on interval."""
         screen_name = self.get_current_screen_name()
         interval = REFRESH_INTERVALS.get(screen_name, 0)
-        
+
         if interval <= 0:
             return False  # No automatic refresh
-        
+
         now = time.time()
         return (now - self.last_refresh) > interval
-    
+
     def mark_refreshed(self):
         """Mark that the screen was just refreshed."""
         self.last_refresh = time.time()
-    
+
     def draw_screen(self, cache, oled):
         """Draw the current screen to the display using cached data.
-        
+
         Args:
             cache: SensorCache instance (for convenience, though self.cache exists)
             oled: SSD1306 display instance
         """
         screen_name = self.get_current_screen_name()
         draw_screen(screen_name, oled, cache, self.font_scales)
-    
+
     def enter_settings_menu(self):
         """Enter the settings submenu."""
         self.in_submenu = True
         self.submenu_type = "settings"
         self.submenu_index = 0
-        print("Entered settings menu")
-    
+        logger.debug("Entered settings menu")
+
     def enter_mode_selection(self):
         """Enter the mode selection submenu."""
         self.menu_stack.append(("settings", self.submenu_index))
         self.submenu_type = "mode_select"
         self.submenu_index = 0
-        print("Entered mode selection")
-    
+        logger.debug("Entered mode selection")
+
     def enter_reset_confirmation(self):
         """Enter the reset WiFi confirmation submenu."""
         self.menu_stack.append(("settings", self.submenu_index))
         self.submenu_type = "reset_confirm"
         self.submenu_index = 0
-        print("Entered reset WiFi confirmation")
-    
+        logger.debug("Entered reset WiFi confirmation")
+
     def enter_display_settings(self):
         """Enter the display timeout settings editor."""
         from runtime_state import get_screen_timeout
@@ -130,15 +131,15 @@ class ScreenManager:
         self.original_timeout_value = self.timeout_value  # Store for cancel
         self.display_timeout_mode = "adjusting"  # Start in adjusting mode
         self.timeout_confirm_index = 0  # Reset to Save
-        print(f"Entered display settings (current: {self.timeout_value}s)")
-    
+        logger.debug(f"Entered display settings (current: {self.timeout_value}s)")
+
     def enter_debug_menu(self):
         """Enter the debug submenu."""
         self.menu_stack.append(("settings", self.submenu_index))
         self.submenu_type = "debug"
         self.submenu_index = 0
-        print("Entered debug menu")
-    
+        logger.debug("Entered debug menu")
+
     def exit_submenu(self):
         """Exit current submenu, return to previous level or main screens."""
         if self.menu_stack:
@@ -146,14 +147,14 @@ class ScreenManager:
             prev_type, prev_index = self.menu_stack.pop()
             self.submenu_type = prev_type
             self.submenu_index = prev_index
-            print(f"Returned to {prev_type} menu")
+            logger.debug(f"Returned to {prev_type} menu")
         else:
             # Exit to main screens
             self.in_submenu = False
             self.submenu_type = None
             self.submenu_index = 0
             self.needs_redraw = True  # Force immediate redraw
-            print("Exited to main screens")
+            logger.debug("Exited to main screens")
     
     def adjust_timeout_up(self):
         """Increase timeout value with variable step sizes."""
@@ -320,7 +321,7 @@ class ScreenManager:
                     # First button press: enter confirmation mode
                     self.display_timeout_mode = "confirming"
                     self.timeout_confirm_index = 0  # Default to Save
-                    print("Entering timeout confirmation mode")
+                    logger.debug("Entering timeout confirmation mode")
                     return None
                 else:
                     # In confirming mode: handle Save/Cancel
@@ -328,17 +329,17 @@ class ScreenManager:
                         # Save selected
                         from runtime_state import set_screen_timeout
                         if set_screen_timeout(self.timeout_value):
-                            print(f"Screen timeout saved: {self.timeout_value}s")
+                            logger.info(f"Screen timeout saved: {self.timeout_value}s")
                             self.exit_submenu()  # Return to settings menu
                             return {"type": "timeout_saved", "value": self.timeout_value}
                         else:
-                            print("Failed to save timeout")
+                            logger.error("Failed to save timeout")
                             self.display_timeout_mode = "adjusting"
                             return None
                     else:
                         # Cancel selected - restore original value
                         self.timeout_value = self.original_timeout_value
-                        print("Timeout change cancelled")
+                        logger.info("Timeout change cancelled")
                         self.exit_submenu()  # Return to settings menu
                         return None
             

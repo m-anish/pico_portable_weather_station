@@ -4,6 +4,7 @@
 # - Copyright (c) Owen Carter
 
 import framebuf
+import logger
 
 # Basic marquee class
 class ezFBmarquee():
@@ -57,10 +58,10 @@ class ezFBmarquee():
         self._outframe = framebuf.FrameBuffer(self._outbuf, self._width, self._height, self._font_format)
         # Give info as needed
         if self._verbose:
-            print('{}: init()\n  mode: {}'.format(self.name, self._mode))
-            print('  x: {}, y: {}, height: {}, width: {}'.format(self._x, self._y, self._height, self._width))
-            print('  pad: {}, default pause: {}, hgap: {}'.format(self._pad, self._dpause, self._hgap))
-            print('  fg: {}, bg: {}'.format(self._fg, self._bg))
+            logger.debug('{}: init()\n  mode: {}'.format(self.name, self._mode))
+            logger.debug('  x: {}, y: {}, height: {}, width: {}'.format(self._x, self._y, self._height, self._width))
+            logger.debug('  pad: {}, default pause: {}, hgap: {}'.format(self._pad, self._dpause, self._hgap))
+            logger.debug('  fg: {}, bg: {}'.format(self._fg, self._bg))
 
     def _line_size(self, string, hgap):
         # Find the pixel size of a string with hgap applied
@@ -143,7 +144,7 @@ class ezFBmarquee():
         # Fill the output area with current background
         self._device.rect(self._x, self._y, self._width, self._height, self._bg, True)
         if self._verbose:
-            print('{}: stop()'.format(self.name))
+            logger.debug('{}: stop()'.format(self.name))
 
     def start(self, string, mode=None, pause=None, pad=None, hgap=None, fg=None, bg=None):
         def swap_bytes(color):
@@ -169,15 +170,15 @@ class ezFBmarquee():
         self.step(0)
         # Give info as needed
         if self._verbose:
-            print('{}: start()\n  {}: {}'.format(self.name, mode, string))
-            print('  string width: {}px,  pad: {}px'.format(self._stringwidth, self._padding))
-            print('  fg: {}, bg: {}, hgap: {}'.format(fg, bg, hgap))
-            print('  pad: {}, pause: {}'.format(pad, self._pause))
+            logger.debug('{}: start()\n  {}: {}'.format(self.name, mode, string))
+            logger.debug('  string width: {}px,  pad: {}px'.format(self._stringwidth, self._padding))
+            logger.debug('  fg: {}, bg: {}, hgap: {}'.format(fg, bg, hgap))
+            logger.debug('  pad: {}, pause: {}'.format(pad, self._pause))
             if not self._stepping:
-                print('  marquee string is shorter than output width, not animating')
+                logger.debug('  marquee string is shorter than output width, not animating')
             if len(self._missing) > 0:
                 m = '  The following requested characters could not be found in the font:\n  {}'
-                print(m.format(self._missing))
+                logger.debug(m.format(self._missing))
 
     def step(self, steps=1):
         # Step the marquee as necesscary
@@ -193,7 +194,7 @@ class ezFBmarquee():
                 self._count = self._start
                 res = True
                 if self._verbose:
-                    print('{}: rollover'.format(self.name))
+                    logger.debug('{}: rollover'.format(self.name))
             # Blit the scrollbuffer over outbuffer offset by scroll value
             if self._stepping:
                 self._outframe.blit(self._scrollframe, -self._count, 0)
@@ -208,7 +209,7 @@ class ezFBmarquee():
         # Pause for the next 'pause' steps
         self._pause = max(-1, int(pause))
         if self._verbose:
-            print('{}: pause: {}'.format(self.name, self._pause))
+            logger.debug('{}: pause: {}'.format(self.name, self._pause))
 
     def active(self):
         # Return true if active
